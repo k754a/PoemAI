@@ -139,6 +139,11 @@ for all in range(0, len(Inputs)):
         for out in range(0, neuronCount):
             wordScore = wordScore + (hiddenState[out] * currentWordOutput[out])
 
+        #we also should update our embedding layer
+        for wordId in Inputs[all]:
+            for out in range(0, neuronCount):
+                weights[wordId][out] += learningRate * 0.1 
+
         #check if the output is our highest score!
         if wordScore > greatestScore:
             greatestScore = wordScore
