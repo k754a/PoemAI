@@ -2,7 +2,8 @@
 
 #We are building a RNN from scratch, a type of ai network. im using a tutorial as ive never touched this before!
 numTokens = [] #global
-
+vocab = {} # save our vocab
+wordID = {}
 
 def Token():
     # we have our data, in a txt file, we need to split it and rank it from the most occurrences to the list.
@@ -26,10 +27,11 @@ def Token():
             word_counts[word] =1 #make a new dict, and set it to 1
         
 
-    wordID = {}
+    
     current_id = 1
     #now we want to assign an ID to each word, as we have the counts, but not the id, and the rank from biggest to smallest
     for word in word_counts.keys():
+        vocab[current_id] = word # assign the vocab word!
         wordID[word] = current_id
 
         current_id +=1
@@ -44,3 +46,4 @@ def Token():
 
 
     print("Done!")
+    
