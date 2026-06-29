@@ -83,9 +83,11 @@ int main() {
 		for (int n = 0; n < neuronCount; n++)
 		{
 			//ok, assign them, both w + n
-			weights[w][n] = (float)rand() / RAND_MAX; //doing randmax locks it between 0 or 1!
 
-			outputWeights[w][n] = (float)rand() / RAND_MAX; //doing randmax locks it between 0 or 1!
+			//ok, apparently, i did some reading, and i didnt center the weights! if i dont, we get crazy errors
+
+			weights[w][n] = (((float)rand() / RAND_MAX) * 2.0f - 1.0f) * 0.1f;
+			outputWeights[w][n] = (((float)rand() / RAND_MAX) * 2.0f - 1.0f) * 0.1f;
 		}
 
 	}
@@ -151,22 +153,6 @@ int main() {
 			//we use a small learning rate, to change cleanly!
 
 
-			//note, i found out about this later, after the python change
-			//i didnt do this before, and it would cause words to be very favorited and repeated
-			for (int w = 0; w < (int)Inputs[all].size(); w++)
-			{
-				//ok we get the word ID
-				int wordId = Inputs[all][w]; //like last time
-
-				//ok so for each neuron, we update our weights
-				for (int n = 0; n < neuronCount; n++)
-				{
-					weights[wordId][n] += epochLearningRate * 0.1f;
-				}
-			}
-
-
-
 			//now that we have done everything, we are onto the final step
 			//reward / punish, we do this if the ai makes a bad guess, and so that
 			//next guess the incorrect word scores lower, this lets us train the ai by teaching it whats right or wrong!
@@ -177,7 +163,7 @@ int main() {
 			for (int out = 0; out < neuronCount; out++)
 			{
 				//we increase the signficance of the word in this patter, if its correct
-				outputWeights[targetId][out] += epochLearningRate;
+				outputWeights[targetId][out] += epochLearningRate * hiddenState[out];
 			}
 
 
@@ -185,41 +171,30 @@ int main() {
 
 			//ok we still punish bad guesses, however, we dont do this every step cause its super slow
 			//so, im going to do it every 10000ish guess, as that still teaches it, but saves us time
-			if (all % 10000 == 0)
+			int NegativeSamplesNum = 5; //punish 5 words
+
+			for (int i = 0; i < NegativeSamplesNum; i++)
 			{
-				float greatestScore = -INFINITY;
-				int greatestScoreID = 0; //holds our greatest score!
+				int badGuessId = rand() % wordCount;
 
-				for (int i = 0; i < wordCount; i++) //loop through our word count!
-				{
-					float wordScore = 0;
+				// dont punish the correct awns
+				if (badGuessId == targetId) continue;
 
-					//we multiply 100 times, and then sum the up
-					for (int out = 0; out < neuronCount; out++)
-					{
-						wordScore += hiddenState[out] * outputWeights[i][out];
-					}
-
-					//then we update the highest score, for whatever it is
-
-					if (wordScore > greatestScore)
-					{
-						greatestScore = wordScore;
-						greatestScoreID = i;
-					}
-				}
-
-				//punish if we get it wrong: 
-					//if its incorrect tho, we lower it
-				if (greatestScoreID != targetId)
-				{
-					for (int out = 0; out < neuronCount; out++)
-					{
-						//same thing, but down
-						outputWeights[greatestScoreID][out] -= epochLearningRate;
-					}
+				for (int out = 0; out < neuronCount; out++) {
+					// We subtract here to punish!
+					outputWeights[badGuessId][out] -= epochLearningRate * hiddenState[out];
 				}
 			}
+			
+			//simple back propo, to update the input weights
+			for (int w = 0; w < (int)Inputs[all].size(); w++) {
+				int wordId = Inputs[all][w];
+				for (int n = 0; n < neuronCount; n++) {
+					
+					weights[wordId][n] -= epochLearningRate * 0.01f * hiddenState[n];
+				}
+			}
+			
 
 
 			//ok now we want to print progress, so we know its working, but std every loop is so slow
@@ -232,13 +207,11 @@ int main() {
 			}
 
 
-
-
 		}
 
-		
-
 	}
+
+		
 	
 
 	//ok we are gonna save the model! however we need to rewrite a few things, as doing .json sucks

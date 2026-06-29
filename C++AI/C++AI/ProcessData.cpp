@@ -58,6 +58,16 @@ int handleData()
 			}
 		}
 
+		//teaches the ai new lines!
+		size_t pos = 0;
+		//we need to teach it <newline tags, so we find the \n, and if we find one, we replace this, we go through the list!
+		//this is super easy, as this is normal in the browser engine!
+		while ((pos = poemText.find('\n', pos)) != std::string::npos)
+		{
+			poemText.replace(pos, 1, " <NEWLINE> ");
+			pos += 11; //after we change it, move past to avoid gliches
+		}
+
 		//close before we write
 		poem.close();
 
