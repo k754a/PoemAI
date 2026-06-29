@@ -5,9 +5,10 @@
 #include "ProcessData.h"
 #include "Tokenizer.h"
 
-
-
+#include <cmath> //need this for the softmax
+#include <fstream> 
 #include <iostream>
+
 int main() {
 	
 	handleData();
@@ -21,7 +22,7 @@ int main() {
 	//Ok, now we need context, and how much it should have
 	//LLMS have about 1m+ but that takes a long time to train, however, because c++ is faster, we can do a context window of 15-30!
 
-	int context = 20; //context
+	int context = 64; //context
 
 
 	//what we are doing is spliting our text up into 4 chars, and through taking our whole txt file, we can start to get better at guessing
@@ -62,7 +63,7 @@ int main() {
 	//we make our word count
 
 	int wordCount = vocab.size() + 1; //we do + 1 to prevent errors
-	int neuronCount = 100; //how large each word vector is!
+	int neuronCount = 512; //how large each word vector is!
 
 	//the python version, i had 2 diffrent loops, c++ i can just use one!
 	//we need to fill the vectors with random floats between 0-1
@@ -99,114 +100,200 @@ int main() {
 	//make the learning rate (how much our weights get adjusted based on changes
 	float learningRate = 0.01f;
 
-	//ok, we loop through all our inputs, adjusting each part as we go along
-	for (int all = 0; all < (int)Inputs.size(); all++)
+
+
+
+
+
+	//handle epochs, how many times we go through the data!
+	int epochs = 10;
+
+	for (int epoch = 0; epoch < epochs; epoch++)
 	{
-		//reset the hiddenState to 0's, as we want to start it fresh for each flash card
-		std::vector<float> hiddenState(neuronCount, 0);
+		//say the epoch we are on
+		std::cout << "Epoch " << epoch + 1 << "/" << epochs << std::endl;
+		//ok, we loop through all our inputs, adjusting each part as we go along
 
-		//for each ID in our context window, grab its weights row
-		//the add it into the hidden state, this builds a summary of the context
-		for (int w = 0; w < (int)Inputs[all].size(); w++)
+		//first we adjust the learning rate, as i found out doing some research, it ends up unlearning things!
+
+		float epochLearningRate = learningRate / (1.0f + epoch * 0.1f);
+
+		for (int all = 0; all < (int)Inputs.size(); all++)
 		{
-			int wordId = Inputs[all][w]; //get the ID number of the word, this is kinda confusing, as we have another WordID
+			//reset the hiddenState to 0's, as we want to start it fresh for each flash card
+			//we can make a more simple list, and its so much faster
+			float hiddenState[512] = {};
 
-			//add this to our row, for each neuron
-			//i forgot to change < so it would have been forever lol
-			for (int n = 0; n < neuronCount; n++)
+			//for each ID in our context window, grab its weights row
+			//the add it into the hidden state, this builds a summary of the context
+			for (int w = 0; w < (int)Inputs[all].size(); w++)
 			{
-				//ok, add it
-				hiddenState[n] += weights[wordId][n];
+				int wordId = Inputs[all][w]; //get the ID number of the word, this is kinda confusing, as we have another WordID
+
+				//add this to our row, for each neuron
+				//i forgot to change < so it would have been forever lol
+				for (int n = 0; n < neuronCount; n++)
+				{
+					//ok, add it
+					hiddenState[n] += weights[wordId][n];
+				}
 			}
-		}
 
 
 
-		//ok, now we need to make a guess of what word comes next
-		//we do that by scoring every word in our vocab
-		//and if our word is off, we adjust our guess, and try again
-		//doing this over and over, we are able to get good results over lots of training!
+			//ok, now we need to make a guess of what word comes next
+			//we do that by scoring every word in our vocab
+			//and if our word is off, we adjust our guess, and try again
+			//doing this over and over, we are able to get good results over lots of training!
 
-		float greatestScore = -INFINITY;
-		int greatestScoreID = 0; //holds our greatest score!
+			//ok, now we need to update the weights a bit
+			//this teaches the weights matrix what looks right
+			//we use a small learning rate, to change cleanly!
 
-		for (int i = 0; i < wordCount; i++) //loop through our word count!
-		{
-			float wordScore = 0;
 
-			//we multiply 100 times, and then sum the up
+			//note, i found out about this later, after the python change
+			//i didnt do this before, and it would cause words to be very favorited and repeated
+			for (int w = 0; w < (int)Inputs[all].size(); w++)
+			{
+				//ok we get the word ID
+				int wordId = Inputs[all][w]; //like last time
+
+				//ok so for each neuron, we update our weights
+				for (int n = 0; n < neuronCount; n++)
+				{
+					weights[wordId][n] += epochLearningRate * 0.1f;
+				}
+			}
+
+
+
+			//now that we have done everything, we are onto the final step
+			//reward / punish, we do this if the ai makes a bad guess, and so that
+			//next guess the incorrect word scores lower, this lets us train the ai by teaching it whats right or wrong!
+
+			int targetId = Targets[all]; //grab our targets, for the current part
+
+
 			for (int out = 0; out < neuronCount; out++)
 			{
-				wordScore += hiddenState[out] * outputWeights[i][out];
+				//we increase the signficance of the word in this patter, if its correct
+				outputWeights[targetId][out] += epochLearningRate;
 			}
 
-			//then we update the highest score, for whatever it is
 
-			if (wordScore > greatestScore)
+
+
+			//ok we still punish bad guesses, however, we dont do this every step cause its super slow
+			//so, im going to do it every 10000ish guess, as that still teaches it, but saves us time
+			if (all % 10000 == 0)
 			{
-				greatestScore = wordScore;
-				greatestScoreID = i;
+				float greatestScore = -INFINITY;
+				int greatestScoreID = 0; //holds our greatest score!
+
+				for (int i = 0; i < wordCount; i++) //loop through our word count!
+				{
+					float wordScore = 0;
+
+					//we multiply 100 times, and then sum the up
+					for (int out = 0; out < neuronCount; out++)
+					{
+						wordScore += hiddenState[out] * outputWeights[i][out];
+					}
+
+					//then we update the highest score, for whatever it is
+
+					if (wordScore > greatestScore)
+					{
+						greatestScore = wordScore;
+						greatestScoreID = i;
+					}
+				}
+
+				//punish if we get it wrong: 
+					//if its incorrect tho, we lower it
+				if (greatestScoreID != targetId)
+				{
+					for (int out = 0; out < neuronCount; out++)
+					{
+						//same thing, but down
+						outputWeights[greatestScoreID][out] -= epochLearningRate;
+					}
+				}
 			}
-		}
-
-		//ok, now we need to update the weights a bit
-		//this teaches the weights matrix what looks right
-		//we use a small learning rate, to change cleanly!
 
 
-		//note, i found out about this later, after the python change
-		//i didnt do this before, and it would cause words to be very favorited and repeated
-		for (int w = 0; w < (int)Inputs[all].size(); w++)
-		{
-			//ok we get the word ID
-			int wordId = Inputs[all][w]; //like last time
+			//ok now we want to print progress, so we know its working, but std every loop is so slow
+			//so we % by 5000, and if its 0, that means its been 5000
 
-			//ok so for each neuron, we update our weights
-			for (int n = 0; n < neuronCount; n++)
+			//ok, so we also handle our last loop, if the inputs are == to the all!
+			if (all % 5000 == 0 || all == (int)Inputs.size() - 1)
 			{
-				weights[wordId][n] += learningRate * 0.1f;
+				std::cout << "Progress: " << all << "/" << Inputs.size() << std::endl;
 			}
+
+
+
+
 		}
 
-
-
-		//now that we have done everything, we are onto the final step
-		//reward / punish, we do this if the ai makes a bad guess, and so that
-		//next guess the incorrect word scores lower, this lets us train the ai by teaching it whats right or wrong!
-
-		int targetId = Targets[all]; //grab our targets, for the current part
-
-
-		for (int out = 0; out < neuronCount; out++)
-		{
-			//we increase the signficance of the word in this patter, if its correct
-			outputWeights[targetId][out] += learningRate;
-		}
-
-		//if its incorrect tho, we lower it
-		if (greatestScoreID != targetId)
-		{
-			for (int out = 0; out < neuronCount; out++)
-			{
-				//same thing, but down
-				outputWeights[greatestScoreID][out] -= learningRate;
-			}
-		}
-
-
-		//ok now we want to print progress, so we know its working, but std every loop is so slow
-		//so we % by 1000, and if its 0, that means its been 1000
-
-		//ok, so we also handle our last loop, if the inputs are == to the all!
-		if (all % 1000 == 0 || all == (int)Inputs.size() - 1)
-		{
-			std::cout << "Progress: " << all << "/" << Inputs.size() << std::endl;
-		}
-
-
-
+		
 
 	}
+	
+
+	//ok we are gonna save the model! however we need to rewrite a few things, as doing .json sucks
+	//so im just gonna save it to a txt file
+
+	std::ofstream modelFile("poem_model.txt");
+
+	//check to make sure its open
+	if (!modelFile.is_open())
+	{
+		std::cout << "ERROR - Could not save model" << std::endl;
+	}
+
+	//first we save the word + neuron count
+	modelFile << wordCount << "\n";
+	modelFile << neuronCount << "\n";
+
+	//then we save the vocab size
+	modelFile << vocab.size() << "\n"; //we make a new line after saying how many words there are!
+
+
+	//then we should write out each word and its ID pairs
+
+	//for each loop 
+	for (auto& pair : vocab)
+	{
+		modelFile << pair.first << " " << pair.second << "\n";
+	}
+
+
+	//save input and output weights, and there neurons
+	for (int w = 0; w < wordCount; w++)
+	{
+		for (int n = 0; n < neuronCount; n++)
+		{
+			//write the values
+			modelFile << weights[w][n] << " ";
+		}
+		modelFile << "\n"; 
+	}
+
+	//the exact same thing for our output weights!
+	for (int w = 0; w < wordCount; w++)
+	{
+		for (int n = 0; n < neuronCount; n++)
+		{
+			modelFile << outputWeights[w][n] << " ";
+		}
+		modelFile << "\n";
+	}
+
+	modelFile.close(); //cleanup
+
+	std::cout << "Done!" << std::endl;
+
 
 
 	return 0;
