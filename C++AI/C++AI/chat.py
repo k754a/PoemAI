@@ -63,8 +63,7 @@ common_ids = [i for i in range(1, min(500, word_count)) if id2word.get(i, "") !=
 if not common_ids:
     common_ids = list(range(1, min(10, word_count)))
 
-# --- CHANGED: Match your new C++ context size! ---
-CONTEXT = 12 
+CONTEXT = 12
 MAX_TOKENS = 90
 MAX_LINES = 4
 
@@ -96,21 +95,22 @@ while True:
         # Use recent tokens as context
         current_ids = ids[-CONTEXT:]
 
-        # 1. MATH MATCH: Recency Bias + Average + Clamp (Matches your new C++ code exactly!)
+        # 1. MATH MATCH: Simple Average + Clamp (Matches your C++ code exactly!)
+        # C++ does: hiddenState[n] += weights[wordId][n] for all words
+        #           hiddenState[n] /= context
+        #           clamp to [-1, 1]
         hidden = np.zeros(neuron_count, dtype=np.float32)
-        L = len(current_ids)
-        
-        for i, wid in enumerate(current_ids):
+        count = 0
+        for wid in current_ids:
             if wid > 0:
-                # Map index so the newest word always gets the highest weight (w = CONTEXT - 1)
-                # This perfectly mirrors your C++ `float importance = (float)(w + 1) / context;`
-                w = i + (CONTEXT - L)
-                importance = (w + 1) / float(CONTEXT)
-                hidden += weights[wid] * importance
+                hidden += weights[wid]
+                count += 1
         
-        # Divide by context and clamp, exactly like C++
-        hidden /= float(CONTEXT)
-        hidden = np.clip(hidden, -1.0, 1.0)
+        # Divide by CONTEXT (not count) to match C++ exactly
+        # C++ always divides by `context` (12), even if some slots are padding
+        if count > 0:
+            hidden /= float(CONTEXT)
+            hidden = np.clip(hidden, -1.0, 1.0)
 
         # Score all words
         scores = out_weights @ hidden
@@ -124,7 +124,7 @@ while True:
         scores += np.random.normal(0.0, 0.001, size=scores.shape).astype(np.float32)
 
         # 2. REPETITION PENALTY: Ban recent non-newline words
-        recent_words = [w for w in generated_words[-20:] if w != "<NEWLINE>"][-12:]
+        recent_words = [w for w in generated_words[-30:] if w != "<NEWLINE>"][-20:]
         for used_word in recent_words:
             used_id = word2id.get(used_word, 0)
             if used_id > 0:
