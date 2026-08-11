@@ -6,9 +6,9 @@ import pandas as pd
 def HandleData():
     #first lets open our file
 
-    p = pd.read_csv("poetry.csv", usecols=['content'])
+    # p = pd.read_csv("poetry.csv", usecols=['content'])
 
-    print(p)
+    # print(p)
 
     ##each row is a poem, so lets conver it into a txt file, so we can work with it easier
 

@@ -3,7 +3,7 @@
 #include <sstream> //for our buffer
 #include <vector>
 #include <unordered_map>
-
+#include <algorithm>
 #include "Tokenizer.h"
 
 
@@ -50,6 +50,15 @@ int token()
 	//super cool thing we can do! we can just see the word, and add 1, c++ already checks and finds it!
 	while (ss >> currentWord)
 	{
+		//having issues with gernation, caused by uppercase words
+		if (currentWord != "<NEWLINE>")
+		{
+			for (char& c : currentWord) //loop through each letter
+			{
+				c = (char)tolower((unsigned char)c); //set c to lower
+			}
+		}
+
 		wordCount[currentWord]++; //add to the current word
 	}
 
@@ -60,24 +69,11 @@ int token()
 	//then we make our vector, and map each element!
 	std::vector<std::pair<std::string, int>> sortedWords(wordCount.begin(), wordCount.end());
 
-	//ok now we sort, im gonna use bubble sort for this cause tis easy!
-	for (int s = 0; s < sortedWords.size() - 1; s++)
-	{
-		//each pass we move the next largest val towards the front
-
-		//so for example we start 1, 2, 3, 4
-		//we compare  1 and 4, then 2 and 3, then swap!
-		for (int i = 0; i < sortedWords.size() - s - 1; i++)
-		{
-			//compare the second value of each element, and if one is bigger than another, swap.
-			if (sortedWords[i].second < sortedWords[i + 1].second)
-			{
-				//swap the 2 elements
-				std::swap(sortedWords[i], sortedWords[i + 1]);
-			}
-		}
-
-	}
+	// FAST SORT: Replaces Bubble Sort (Takes milliseconds instead of minutes!)
+	std::sort(sortedWords.begin(), sortedWords.end(),
+		[](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
+			return a.second > b.second;
+		});
 
 	//ok, now we assign the id's
 	int currentID = 1;

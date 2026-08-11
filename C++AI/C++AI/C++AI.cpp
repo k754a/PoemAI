@@ -8,6 +8,7 @@
 #include <cmath> //need this for the softmax
 #include <fstream> 
 #include <iostream>
+#include <cstdlib>
 
 int main() {
 	
@@ -22,7 +23,7 @@ int main() {
 	//Ok, now we need context, and how much it should have
 	//LLMS have about 1m+ but that takes a long time to train, however, because c++ is faster, we can do a context window of 15-30!
 
-	int context = 64; //context
+	int context = 12; //context 64 -> 12 to impove pattern reco
 
 
 	//what we are doing is spliting our text up into 4 chars, and through taking our whole txt file, we can start to get better at guessing
@@ -102,13 +103,8 @@ int main() {
 	//make the learning rate (how much our weights get adjusted based on changes
 	float learningRate = 0.01f;
 
-
-
-
-
-
 	//handle epochs, how many times we go through the data!
-	int epochs = 10;
+	int epochs = 50;
 
 	for (int epoch = 0; epoch < epochs; epoch++)
 	{
@@ -131,17 +127,20 @@ int main() {
 			for (int w = 0; w < (int)Inputs[all].size(); w++)
 			{
 				int wordId = Inputs[all][w]; //get the ID number of the word, this is kinda confusing, as we have another WordID
-
+				if (wordId <= 0 || wordId >= wordCount) continue; //skip if we meet these conditions, and this prevents erros
 				//add this to our row, for each neuron
 				//i forgot to change < so it would have been forever lol
 				for (int n = 0; n < neuronCount; n++)
 				{
-					//ok, add it
-					hiddenState[n] += weights[wordId][n];
+					hiddenState[n] += weights[wordId][n]; //update the hidden state
 				}
 			}
-
-
+			for (int n = 0; n < neuronCount; n++)
+			{
+				hiddenState[n] /= (float)context;
+				if (hiddenState[n] > 1.0f) hiddenState[n] = 1.0f;
+				else if (hiddenState[n] < -1.0f) hiddenState[n] = -1.0f;
+			}
 
 			//ok, now we need to make a guess of what word comes next
 			//we do that by scoring every word in our vocab
@@ -158,12 +157,19 @@ int main() {
 			//next guess the incorrect word scores lower, this lets us train the ai by teaching it whats right or wrong!
 
 			int targetId = Targets[all]; //grab our targets, for the current part
+			if (targetId <= 0 || targetId >= wordCount) continue; //check to make sure we arnt going to pass bad data in
 
-
+			float inputGrad[512] = {}; //this array will track the weights based on the ouput
 			for (int out = 0; out < neuronCount; out++)
 			{
 				//we increase the signficance of the word in this patter, if its correct
 				outputWeights[targetId][out] += epochLearningRate * hiddenState[out];
+
+				//clamp
+				if (outputWeights[targetId][out] > 1.0f) outputWeights[targetId][out] = 1.0f;
+				if (outputWeights[targetId][out] < -1.0f) outputWeights[targetId][out] = -1.0f;
+
+				inputGrad[out] += outputWeights[targetId][out];
 			}
 
 
@@ -171,27 +177,42 @@ int main() {
 
 			//ok we still punish bad guesses, however, we dont do this every step cause its super slow
 			//so, im going to do it every 10000ish guess, as that still teaches it, but saves us time
-			int NegativeSamplesNum = 5; //punish 5 words
+			int NegativeSamplesNum = 15; //punish 15 words
 
+			
 			for (int i = 0; i < NegativeSamplesNum; i++)
 			{
-				int badGuessId = rand() % wordCount;
-
-				// dont punish the correct awns
-				if (badGuessId == targetId) continue;
+				//skip hte 0 id, and make sure we dont punish the correct word
+				int badGuessId;
+				do {
+					badGuessId = 1 + rand() % (wordCount - 1); //skip the first id to get the ai to run better
+				} while (badGuessId == targetId);
 
 				for (int out = 0; out < neuronCount; out++) {
 					// We subtract here to punish!
 					outputWeights[badGuessId][out] -= epochLearningRate * hiddenState[out];
+
+					//clamp
+					if (outputWeights[badGuessId][out] > 1.0f) outputWeights[badGuessId][out] = 1.0f;
+					if (outputWeights[badGuessId][out] < -1.0f) outputWeights[badGuessId][out] = -1.0f;
+
+					inputGrad[out] -= outputWeights[badGuessId][out];
+
 				}
 			}
 			
 			//simple back propo, to update the input weights
 			for (int w = 0; w < (int)Inputs[all].size(); w++) {
 				int wordId = Inputs[all][w];
+				if (wordId <= 0 || wordId >= wordCount) continue; //check to make sure we arnt going to pass bad data in
+
 				for (int n = 0; n < neuronCount; n++) {
-					
-					weights[wordId][n] -= epochLearningRate * 0.01f * hiddenState[n];
+					weights[wordId][n] += epochLearningRate * 1.0f * inputGrad[n];
+					//check if the word maches, and this will prevent issues wiht everything being throw together, and only chosing 15 different words
+
+					if (weights[wordId][n] > 1.0f) weights[wordId][n] = 1.0f;
+					if (weights[wordId][n] < -1.0f) weights[wordId][n] = -1.0f;
+
 				}
 			}
 			
@@ -224,6 +245,8 @@ int main() {
 	{
 		std::cout << "ERROR - Could not save model" << std::endl;
 	}
+
+	modelFile.precision(9); //cut the float per to 9 
 
 	//first we save the word + neuron count
 	modelFile << wordCount << "\n";
