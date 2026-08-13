@@ -69,11 +69,8 @@ int token()
 	//then we make our vector, and map each element!
 	std::vector<std::pair<std::string, int>> sortedWords(wordCount.begin(), wordCount.end());
 
-	// FAST SORT: Replaces Bubble Sort (Takes milliseconds instead of minutes!)
-	std::sort(sortedWords.begin(), sortedWords.end(),
-		[](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) {
-			return a.second > b.second;
-		});
+	// use fast sort (got this online)
+	std::sort(sortedWords.begin(), sortedWords.end(), [](const std::pair<std::string, int>& a, const std::pair<std::string, int>& b) { return a.second > b.second; });
 
 	//ok, now we assign the id's
 	int currentID = 1;
