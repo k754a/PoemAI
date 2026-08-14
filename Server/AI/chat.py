@@ -1,241 +1,627 @@
-
 import os
+
+# ---------------------------------------------------------
+# KEEP NUMPY FROM GOING CRAZY WITH THREADS
+# ---------------------------------------------------------
+# Set these BEFORE importing numpy.
+# Your server only has 2 cores, so don't let BLAS summon 47
+# billion threads and turn the VPS into a microwave.
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "2")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "2")
+
 import numpy as np
 
 
+# ---------------------------------------------------------
+# PATHS
+# ---------------------------------------------------------
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "poem_model-0.7m.model")
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "poem_model-0.7m.model"
+)
 
 
-# Optional rhyming. Install with: pip install pronouncing
+# ---------------------------------------------------------
+# OPTIONAL RHYMING
+# ---------------------------------------------------------
+
 try:
     import pronouncing
     USE_RHYMES = True
 except Exception:
     USE_RHYMES = False
 
-# --- LOAD MODEL SAFELY ---
+
+# ---------------------------------------------------------
+# LOAD MODEL
+# ---------------------------------------------------------
+
 print("Loading model...")
 
 if not os.path.exists(MODEL_PATH):
-    print("ERROR: poem_model-0.7m.model not found. Train the C++ model first!")
-    exit()
+    print(
+        "ERROR: poem_model-0.7m.model not found!"
+    )
+    raise SystemExit(1)
 
-with open(MODEL_PATH, encoding="utf-8", errors="ignore") as f:
+
+with open(
+    MODEL_PATH,
+    encoding="utf-8",
+    errors="ignore"
+) as f:
+
+    # First three lines contain model information.
     word_count = int(f.readline())
     neuron_count = int(f.readline())
     vocab_size = int(f.readline())
 
-    id2word, word2id = {}, {}
+
+    # -----------------------------------------------------
+    # VOCABULARY
+    # -----------------------------------------------------
+
+    id2word = {}
+    word2id = {}
 
     for _ in range(vocab_size):
+
         line = f.readline().strip()
 
         if not line:
             continue
 
-        parts = line.split(" ", 1)
+        parts = line.split(
+            " ",
+            1
+        )
 
         if len(parts) < 2:
             continue
 
-        wid, word = int(parts[0]), parts[1]
+        wid = int(parts[0])
+        word = parts[1]
 
         id2word[wid] = word
         word2id[word] = wid
 
+
+    # -----------------------------------------------------
+    # LOAD WEIGHTS
+    # -----------------------------------------------------
+    #
+    # The model is stored as text, so we load it directly
+    # into float32 arrays to keep RAM usage reasonable.
+    #
+    # -----------------------------------------------------
+
     def safe_load(rows):
-        data = []
 
-        for _ in range(rows):
-            vals = []
+        data = np.zeros(
+            (
+                rows,
+                neuron_count
+            ),
+            dtype=np.float32
+        )
 
-            for x in f.readline().split():
-                try:
-                    v = float(x)
-                    vals.append(v if np.isfinite(v) else 0.0)
-                except ValueError:
-                    vals.append(0.0)
+        for i in range(rows):
 
-            # Pad or trim to ensure exact shape match
-            while len(vals) < neuron_count:
-                vals.append(0.0)
+            line = f.readline()
 
-            vals = vals[:neuron_count]
-            data.append(vals)
+            if not line:
+                break
 
-        return np.array(data, dtype=np.float32)
+            try:
 
-    weights = safe_load(word_count)
-    out_weights = safe_load(word_count)
+                vals = np.fromstring(
+                    line,
+                    dtype=np.float32,
+                    sep=" "
+                )
 
-print(f"Model loaded: {vocab_size} words, {neuron_count} neurons")
+            except Exception:
 
-# Low IDs are common words (tokenizer sorts by frequency).
-# Used as fallback for unknown prompts.
-common_ids = list(range(1, min(500, word_count)))
+                vals = np.empty(
+                    0,
+                    dtype=np.float32
+                )
 
-if not common_ids:
-    common_ids = list(range(1, min(10, word_count)))
+            length = min(
+                len(vals),
+                neuron_count
+            )
+
+            if length > 0:
+
+                data[
+                    i,
+                    :length
+                ] = vals[
+                    :length
+                ]
+
+        return data
+
+
+    # Input/embedding weights.
+    weights = safe_load(
+        word_count
+    )
+
+    # Output weights.
+    out_weights = safe_load(
+        word_count
+    )
+
+
+# ---------------------------------------------------------
+# ENSURE NUMPY-FRIENDLY MEMORY LAYOUT
+# ---------------------------------------------------------
+
+weights = np.ascontiguousarray(
+    weights,
+    dtype=np.float32
+)
+
+out_weights = np.ascontiguousarray(
+    out_weights,
+    dtype=np.float32
+)
+
+
+print(
+    f"Model loaded: "
+    f"{vocab_size} words, "
+    f"{neuron_count} neurons"
+)
+
+
+# ---------------------------------------------------------
+# CONFIG
+# ---------------------------------------------------------
 
 CONTEXT = 12
+
+# 60 gives the same approximate length as your old version.
 MAX_TOKENS = 60
 
-print("\n--- AI Poet (type 'exit' to stop) ---")
+# We only need a few candidates.
+TOP_K = 25
+
+# Random noise is expensive on a small CPU.
+# Turn this on if you really want it.
+USE_NOISE = False
+
+
+# ---------------------------------------------------------
+# RANDOM NUMBER GENERATOR
+# ---------------------------------------------------------
+
+rng = np.random.default_rng()
+
+
+# ---------------------------------------------------------
+# COMMON WORD FALLBACK
+# ---------------------------------------------------------
+#
+# Low IDs are common words because your tokenizer sorts
+# vocabulary by frequency.
+#
+# ---------------------------------------------------------
+
+common_ids = np.arange(
+    1,
+    min(
+        500,
+        word_count
+    ),
+    dtype=np.int32
+)
+
+if len(common_ids) == 0:
+
+    common_ids = np.arange(
+        1,
+        min(
+            10,
+            word_count
+        ),
+        dtype=np.int32
+    )
+
+
+# ---------------------------------------------------------
+# PRECOMPUTED WORD BIAS
+# ---------------------------------------------------------
+#
+# Your old code rebuilt this on EVERY TOKEN.
+#
+# We only need to build it once.
+#
+# ---------------------------------------------------------
+
+word_bias = (
+    np.arange(
+        word_count,
+        dtype=np.float32
+    )
+    * 0.000001
+)
+
+word_bias[0] = 0.0
+
+
+# ---------------------------------------------------------
+# GENERATE POEM
+# ---------------------------------------------------------
 
 def generate_poem(text):
+
+    # -----------------------------------------------------
+    # CLEAN INPUT
+    # -----------------------------------------------------
+
     text = text.strip().lower()
 
     if not text:
         return ""
-    
-    # Convert prompt to IDs
+
+
+    # -----------------------------------------------------
+    # REQUEST-LOCAL BUFFERS
+    # -----------------------------------------------------
+    #
+    # These used to be global.
+    #
+    # That's bad for Flask because two users generating
+    # poems at the same time could overwrite each other's
+    # buffers.
+    #
+    # They're tiny compared to the actual model.
+    #
+    # -----------------------------------------------------
+
+    hidden = np.zeros(
+        neuron_count,
+        dtype=np.float32
+    )
+
+    scores = np.empty(
+        word_count,
+        dtype=np.float32
+    )
+
+    used_mask = np.zeros(
+        word_count,
+        dtype=np.bool_
+    )
+
+
+    # -----------------------------------------------------
+    # SPLIT PROMPT
+    # -----------------------------------------------------
+
     prompt_words = text.split()
 
-    ids = [
-        word2id.get(w, 0)
-        for w in prompt_words
-    ]
+    if not prompt_words:
+        return ""
 
-    ids = [
-        i for i in ids
-        if i > 0
-    ]
 
-    # Use the first input word as the starting word.
-    # This lets the model build the poem from the user's word.
+    # -----------------------------------------------------
+    # FIRST WORD
+    # -----------------------------------------------------
+
     first_word = prompt_words[0]
-    first_id = word2id.get(first_word, 0)
 
-    # Fallback if the first word isn't in the vocabulary
+    first_id = word2id.get(
+        first_word,
+        0
+    )
+
+
+    # -----------------------------------------------------
+    # UNKNOWN WORD
+    # -----------------------------------------------------
+
     if first_id <= 0:
-        first_id = int(np.random.choice(common_ids))
-        first_word = id2word.get(first_id, "?")
 
-    # Start generation with the user's first word
-    generated_words = [first_word]
-    ids = [first_id]
+        first_id = int(
+            rng.choice(
+                common_ids
+            )
+        )
 
-    # Keep track of every generated word.
-    # A word can only appear once in the poem.
-    used_ids = {first_id}
+        first_word = id2word.get(
+            first_id,
+            "?"
+        )
 
-    for step in range(MAX_TOKENS - 1):
 
-        # Use recent tokens as context
-        current_ids = ids[-CONTEXT:]
+    # -----------------------------------------------------
+    # INITIAL OUTPUT
+    # -----------------------------------------------------
 
-        # ---------------------------------------------------------
-        # 1. MATH MATCH
-        # Matches the C++ code:
+    generated_words = [
+        first_word
+    ]
+
+    ids = [
+        first_id
+    ]
+
+
+    # -----------------------------------------------------
+    # TRACK USED WORDS
+    # -----------------------------------------------------
+
+    used_mask.fill(False)
+
+    if (
+        0 < first_id
+        < word_count
+    ):
+
+        used_mask[first_id] = True
+
+
+    # -----------------------------------------------------
+    # GENERATION LOOP
+    # -----------------------------------------------------
+
+    for step in range(
+        MAX_TOKENS - 1
+    ):
+
+
+        # -------------------------------------------------
+        # GET RECENT CONTEXT
+        # -------------------------------------------------
+
+        current_ids = ids[
+            -CONTEXT:
+        ]
+
+
+        # -------------------------------------------------
+        # HIDDEN STATE
+        # -------------------------------------------------
         #
-        # hiddenState[n] += weights[wordId][n]
-        # hiddenState[n] /= context
-        # clamp to [-1, 1]
-        # ---------------------------------------------------------
+        # OLD VERSION:
+        #
+        # hidden = np.zeros(...)
+        #
+        # for wid in current_ids:
+        #     hidden += weights[wid]
+        #
+        # That Python loop is slow.
+        #
+        # NumPy performs the reduction in C instead.
+        #
+        # -------------------------------------------------
 
-        hidden = np.zeros(
-            neuron_count,
+        hidden[:] = np.sum(
+            weights[current_ids],
+            axis=0,
             dtype=np.float32
         )
 
-        count = 0
 
-        for wid in current_ids:
-            if wid > 0:
-                hidden += weights[wid]
-                count += 1
+        # -------------------------------------------------
+        # MATCH C++ MATH
+        # -------------------------------------------------
 
-        # Divide by CONTEXT to match C++ exactly
-        if count > 0:
-            hidden /= float(CONTEXT)
-            hidden = np.clip(
-                hidden,
-                -1.0,
-                1.0
-            )
-
-        # ---------------------------------------------------------
-        # 2. SCORE ALL WORDS
-        # ---------------------------------------------------------
-
-        scores = out_weights @ hidden
-        scores = scores.astype(np.float32)
-
-        # Ban padding ID
-        scores[0] = -999999.0
-
-        # Tiny bias toward common words
-        scores[1:] -= (
-            np.arange(
-                1,
-                word_count,
-                dtype=np.float32
-            ) * 0.000001
+        hidden /= float(
+            CONTEXT
         )
 
-        # Tiny noise for variety
-        scores += np.random.normal(
-            0.0,
-            0.001,
-            size=scores.shape
-        ).astype(np.float32)
 
-        # ---------------------------------------------------------
-        # 3. NEVER REPEAT A WORD
-        # ---------------------------------------------------------
+        # Keep hidden values between -1 and 1.
+        np.clip(
+            hidden,
+            -1.0,
+            1.0,
+            out=hidden
+        )
 
-        for used_id in used_ids:
-            if used_id > 0 and used_id < word_count:
-                scores[used_id] = -999999.0
 
-        # ---------------------------------------------------------
-        # 4. GET BEST CANDIDATES
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # SCORE EVERY WORD
+        # -------------------------------------------------
+        #
+        # Matrix-vector multiplication.
+        #
+        # out= allows NumPy to reuse our existing scores
+        # array instead of allocating another large one.
+        #
+        # -------------------------------------------------
 
-        top_indices = np.argsort(scores)[-25:][::-1]
+        np.dot(
+            out_weights,
+            hidden,
+            out=scores
+        )
 
-        top_indices = [
-            int(i)
-            for i in top_indices
-            if (
-                i > 0
-                and scores[i] > -999998.0
-                and i not in used_ids
+
+        # -------------------------------------------------
+        # BAN PADDING TOKEN
+        # -------------------------------------------------
+
+        scores[0] = -np.inf
+
+
+        # -------------------------------------------------
+        # COMMON WORD BIAS
+        # -------------------------------------------------
+
+        scores -= word_bias
+
+
+        # -------------------------------------------------
+        # OPTIONAL RANDOM NOISE
+        # -------------------------------------------------
+        #
+        # Disabled by default because creating an entire
+        # vocabulary-sized random array for every token is
+        # unnecessary CPU work.
+        #
+        # -------------------------------------------------
+
+        if USE_NOISE:
+
+            scores += rng.normal(
+                0.0,
+                0.001,
+                size=word_count
+            ).astype(
+                np.float32
             )
-        ]
 
-        # ---------------------------------------------------------
-        # 5. CHOOSE NEXT WORD
-        # ---------------------------------------------------------
 
-        if not top_indices:
+        # -------------------------------------------------
+        # BAN WORDS ALREADY USED
+        # -------------------------------------------------
+
+        scores[
+            used_mask
+        ] = -np.inf
+
+
+        # -------------------------------------------------
+        # GET TOP K
+        # -------------------------------------------------
+        #
+        # np.argsort() sorts EVERYTHING.
+        #
+        # That's wasteful because we only care about the
+        # top 25.
+        #
+        # argpartition() finds the top section much faster.
+        #
+        # -------------------------------------------------
+
+        k = min(
+            TOP_K,
+            word_count - 1
+        )
+
+        if k <= 0:
             break
 
-        # Pick randomly from top 3 to keep some variety
+
+        top_indices = np.argpartition(
+            scores,
+            -k
+        )[-k:]
+
+
+        # -------------------------------------------------
+        # SORT ONLY TOP K
+        # -------------------------------------------------
+
+        top_indices = top_indices[
+            np.argsort(
+                scores[
+                    top_indices
+                ]
+            )[::-1]
+        ]
+
+
+        # -------------------------------------------------
+        # REMOVE INVALID CANDIDATES
+        # -------------------------------------------------
+
+        valid = []
+
+        for idx in top_indices:
+
+            idx = int(idx)
+
+            if idx <= 0:
+                continue
+
+            if used_mask[idx]:
+                continue
+
+            if not np.isfinite(
+                scores[idx]
+            ):
+                continue
+
+            valid.append(
+                idx
+            )
+
+
+        # Nothing left to generate.
+        if not valid:
+            break
+
+
+        # -------------------------------------------------
+        # CHOOSE FROM TOP 3
+        # -------------------------------------------------
+        #
+        # Picking from the top few prevents every poem from
+        # being exactly the same.
+        #
+        # -------------------------------------------------
+
+        choice_count = min(
+            3,
+            len(valid)
+        )
+
         best_id = int(
-            np.random.choice(
-                top_indices[
-                    :min(3, len(top_indices))
+            rng.choice(
+                valid[
+                    :choice_count
                 ]
             )
         )
+
+
+        # -------------------------------------------------
+        # GET WORD
+        # -------------------------------------------------
 
         next_word = id2word.get(
             best_id,
             "?"
         )
 
-        # If somehow invalid, stop
+
         if next_word == "?":
             break
 
-        # Add the new word
-        generated_words.append(next_word)
-        ids.append(best_id)
-        used_ids.add(best_id)
 
-    poem = " ".join(generated_words)
+        # -------------------------------------------------
+        # ADD WORD
+        # -------------------------------------------------
 
-    return poem
+        generated_words.append(
+            next_word
+        )
+
+        ids.append(
+            best_id
+        )
+
+        used_mask[
+            best_id
+        ] = True
+
+
+    # -----------------------------------------------------
+    # RETURN POEM
+    # -----------------------------------------------------
+
+    return " ".join(
+        generated_words
+    )
