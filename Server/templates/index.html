@@ -2,7 +2,7 @@
 <html lang="en">
     <head>
         <title>PoemAI</title>
-          <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+        <link rel="stylesheet" href="/PoemAi/static/style.css">  
     </head>
    
     <body>
@@ -89,7 +89,7 @@
                 const word = form.word.value; //grab the value
                 
                 try { //try to send a request, and grab it
-                    const response = await fetch("/generate", { //hold the response
+                    const response = await fetch("/PoemAi/generate", { //hold the response
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json"
