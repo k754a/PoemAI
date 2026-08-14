@@ -7,7 +7,7 @@
    
     <body>
         <div class = "input-container">
-            <form id="form" action="/generate" method="POST" onsubmit="generatePoem(event)">
+            <form id="form" action="/PoemAi/generate" method="POST" onsubmit="generatePoem(event)">
                 <input 
                     type="text" 
                     class="single-word-input" 
@@ -89,7 +89,7 @@
                 const word = form.word.value; //grab the value
                 
                 try { //try to send a request, and grab it
-                    const response = await fetch("/generate", { //hold the response
+                    const response = await fetch("/PoemAi/generate", { //hold the response
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json"

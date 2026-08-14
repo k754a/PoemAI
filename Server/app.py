@@ -3,7 +3,7 @@
 from flask import Flask, request, jsonify, render_template
 from AI.chat import generate_poem
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/PoemAI/static')
 
 @app.route('/')
 def index():
