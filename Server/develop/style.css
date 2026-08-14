@@ -1,43 +1,66 @@
+* {
+    box-sizing: border-box;
+
+}
+
+html, body {
+    height: 100%;
+    min-height: 100%;
+    margin: 0;
+}
 body {
     background-color: #EFE6DB;
     font-family: "DM Sans", sans-serif;
     margin: 0;
     font-weight: 600;
+    
+    overflow-x: visible;
+
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
 }
 
 .input-container {
-    position: fixed;
-    top: 70px;
-    left: 50%;
-    transform: translateX(-50%);
     width: 90%;
     max-width: 700px;
+    margin: 70px auto 0;
+
+    display: flex;
+    justify-content: center;
+    min-width: 0;
 }
 
 form {
-    position: relative;
+    width: 100%;
     display: flex;
-    flex-direction: column;
+    justify-content: center;
     align-items: center;
 }
 
 input[type="text"] {
     /* pos */
-    width: 100%;
-    height: 45px;
+    width: auto;
+    min-width: 200px;
+
+    height: auto;
     padding: 12px 16px;
-    box-sizing: border-box;
 
     /* looks */
-    background-color: #46464600;
-    border-radius: 999px;
+    background-color: transparent;
     border: none;
     outline: none;
 
     /* text stuff */
     color: rgb(0, 0, 0);
     text-align: center;  
-    font-size: 35px;
+
+    font-size: clamp(18px, 5vw, 90px);
+    font-weight: 600;
+
+    white-space: nowrap;
+
+    flex-shrink: 0;
 }
 
 /* Submit button */
@@ -48,7 +71,7 @@ button[type="submit"] {
 
     /* border-radius: 5%; */
     background-color: #555556;
-    color: white;
+    color: rgb(255, 255, 255);
     border: none;
     cursor: pointer;
 
@@ -56,9 +79,11 @@ button[type="submit"] {
     justify-content: center;
     align-items: center;
 
+    flex-shrink: 0;
+
 }
 button {
-     transition: background-color 0.3s ease;
+    transition: background-color 0.3s ease;
 }
 button[type="copy"] {
     
@@ -67,8 +92,9 @@ button[type="copy"] {
     color: #3f3f3f; 
     position: static;
     
-    background-color: #55555600;
+    background-color: transparent;
     border: none;
+
     cursor: pointer;
 
     display: flex;
@@ -82,79 +108,95 @@ button[type="copy"]:hover  {
     transition: color 0.3s ease;
 }
 .poem-container {
-    position: absolute;
-    top: 40%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
+    width: min(100%, 1200px);
+
+    margin: clamp(50px, 10vh, 140px) auto 0;
+    display: flex;
+
+    flex-direction: column;
+    align-items: center;
+    
+    gap: 20px;
+
+    overflow-wrap: anywhere;
+    word-wrap: normal;
 }
 
 #Poetry {
-   font-size: 35px;
+   width: 100%;
+   font-size: clamp(20px, 10vh, 35px);
+   line-height: 1.35;
    font-weight: 500;
    text-align: center;
+
    white-space: pre-line;
+   overflow-wrap: anywhere;
    color: #252525;
 }
 
 .copy-container {
-    position: absolute;
-    top: 105%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    margin-top: 1px;
+    display: none;
+
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+  
     text-align: center;
 }
 
 
 .bottom-container {
-    font-weight: 100;
-    font-family: "Plus Jakarta Sans", sans-serif;
-    background-color: #7a7a7a00;
     position: fixed;
-    bottom: 0px;
-    overflow: hidden;
+    left: 0;
+    bottom: 0;
+
     width: 100%;
-    align-items: center;
-}
-#SideNote {
-    /* base color */
-    white-space: nowrap;
-    position: fixed;
+    min-height: 45px;
 
-    left: 50%;
-    bottom: -5px;
-
-    transform: translateX(-50%);
-
-    padding: 8px;
-    
-    border: none;
-    cursor: pointer;
+    padding: 6px 110px 6px 110px;
+  
+    background-color: #EFE6DB;
 
     display: flex;
     justify-content: center;
     align-items: center;
 
+    z-index: 100;
+}
+#SideNote {
+    width: min(80%);
+    margin: 10px;
+
+    font-size: clamp(7px, 2vw, 16px);
+    font-weight: 100;
+    font-family: "Plus Jakarta Sans", sans-serif;
+
+    /* base color */
     color: #7e7c7c;
+    text-align: center;
+
+   
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 button[type="github"]  {
-    transition: color 0.3s ease;
+    position:absolute;
     /* base color */
-    color: #3f3f3f; 
-    position: fixed;
+    transition: color 0.3s ease; color: #3f3f3f; 
+    
     right: 7px;
     bottom: 7px;
+    
 
     padding: 8px;
     
    
-    background-color: #55555600;
+    background-color: transparent;
     border: none;
+
     cursor: pointer;
     display: flex;
-    justify-content: center;
-    align-items: center;
-
 }
 button[type="github"]:hover  {
     color: #888787;
@@ -163,23 +205,16 @@ button[type="github"]:hover  {
 }
 
 button[type="stardance"]  {
-      transition: color 0.3s ease;
-    /* base color */
-    color: #3f3f3f; 
-    position: fixed;
+    position:absolute;
     right: 45px;
-    bottom: 5px;
+    bottom: 1px;
 
     padding: 8px;
     
    
-    background-color: #55555600;
+    background-color: transparent;
     border: none;
     cursor: pointer;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-
 }
 button[type="stardance"] img {
     width: auto;
