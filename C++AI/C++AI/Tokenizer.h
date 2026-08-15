@@ -11,8 +11,9 @@
 extern std::vector<int> numTokens;
 
 extern std::unordered_map<std::string, int> wordID;
-extern std::unordered_map<int, std::string> vocab;
-
+extern std::unordered_map<int, std::string> vocab; 
+extern std::unordered_map<std::string, std::vector<int>> rhymeGroups; 
+std::string getRhymeKey(std::string word);
 
 int token();
 

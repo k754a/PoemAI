@@ -4,7 +4,7 @@
         <title>PoemAI</title>
         <link rel="stylesheet" href="/PoemAi/static/style.css">  
     </head>
-   
+
     <body>
         <div class = "input-container">
             <form id="form" action="/PoemAi/generate" method="POST" onsubmit="generatePoem(event)">
@@ -18,14 +18,8 @@
                     autocomplete="off"
                     spellcheck="false"
                     required>
-               
-                <!-- <button type = "submit">
-                    <p id ="Generate">Generate</p>
-                </button> -->
-                    
             </form>
         </div>
-
 
         <div class = "poem-container">
             <p id ="Poetry" ></p>
@@ -36,8 +30,6 @@
             </div>
         </div>
         
-      
-
         <div class = "bottom-container">
             <p id ="SideNote" >This is a small model, while it has a semblance of rhyming, it does NOT produce coherent or meaningful text.</p>
             <div class = "github buttn">
@@ -48,14 +40,12 @@
                    <img src="/PoemAi/static/image's/stardance-logo.png" alt="Stardance" width="24" height="24">
                 </button>
             </div>
-
         </div>
 
-        
     <!-- javascript -->
-     <script>
+    <script>
         const input = document.querySelector("input[type='text']"); //handle the input, as we want to expand it
-        
+
         function resizeInput() {
             //use a ruler to prevent css from affecting the width
             const ruler = document.createElement("span");
@@ -79,62 +69,63 @@
 
         resizeInput(); //initial resize
 
-            //now assign it
-            const poetry = document.getElementById("Poetry"); //create a listener
+        //now assign it
+        const poetry = document.getElementById("Poetry"); //create a listener
         
-            async function generatePoem(event) {
-                event.preventDefault(); //dont reload
+        async function generatePoem(event) {
+            event.preventDefault(); //dont reload
                 
-                const form = event.target;
-                const word = form.word.value; //grab the value
+            const form = event.target;
+            const word = form.word.value; //grab the value
                 
-                try { //try to send a request, and grab it
-                    const response = await fetch("/PoemAi/generate", { //hold the response
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify({word: word}) //stringify the data
-                    });
-
-                    if(!response.ok) {throw new Error("ERROR");} //if we get something, but isnt right
-
-                    const data = await response.json(); //wait for our data
-
-                    output = data.output; //update the data
-
-                    poetry.textContent = output; //update the veiw
-                    document.querySelector(".copy-container").style.display = "flex"; //show the copy button    
-                } catch (error) { //if we get an error overall
-                    console.error("Something went wrong: ", error); 
-                    poetry.textContent = "Something went wrong :("
-                    document.querySelector(".copy-container").style.display = "none"; //hide the copy button 
-                }
-            }
-
-            //handle the copy + paste stuff
-            function copyToClipboard() {
-                const textToCopy = document.getElementById("Poetry").textContent;
-                const button = document.querySelector(".copy-container button");
-
-                navigator.clipboard.writeText(textToCopy)
-                    .then(() => {
-                        console.log("Text copied to clipboard:", textToCopy);
-                       
-                        button.style.color = "#33cc33";
-                        setTimeout(() => {
-                            button.style.color = ""; // Reset color after 700 ms
-                        }, 700);
-                    })
-                    .catch((error) => {
-                        console.error("Failed to copy text:", error);
-                        button.style.color = "#ff0000";
-                        setTimeout(() => {
-                            button.style.color = ""; // Reset color after 700 ms
-                        }, 700);
+            try { //try to send a request, and grab it
+                const response = await fetch("/PoemAi/generate", { //hold the response
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({word: word}) //stringify the data
                 });
+
+                if(!response.ok) {throw new Error("ERROR");} //if we get something, but isnt right
+
+                const data = await response.json(); //wait for our data
+
+                output = data.output; //update the data
+
+                poetry.textContent = output; //update the veiw
+                document.querySelector(".copy-container").style.display = "flex"; //show the copy button    
+            } catch (error) { //if we get an error overall
+                console.error("Something went wrong: ", error); 
+                poetry.textContent = "Something went wrong :("
+                document.querySelector(".copy-container").style.display = "none"; //hide the copy button 
             }
-     </script>
+        }
+
+        //handle the copy + paste stuff
+        function copyToClipboard() {
+            const textToCopy = document.getElementById("Poetry").textContent;
+            const button = document.querySelector(".copy-container button");
+
+            navigator.clipboard.writeText(textToCopy)
+            .then(() => {
+                console.log("Text copied to clipboard:", textToCopy);
+                       
+                button.style.color = "#33cc33";
+                setTimeout(() => {
+                    button.style.color = ""; // Reset color after 700 ms
+                }, 700);
+            })
+            .catch((error) => {
+                console.error("Failed to copy text:", error);
+                button.style.color = "#ff0000";
+                setTimeout(() => {
+                    button.style.color = ""; // Reset color after 700 ms
+                }, 700);
+            });
+        }
+
+    </script>
     </body>
 </html>
 

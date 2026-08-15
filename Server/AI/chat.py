@@ -1,3 +1,6 @@
+# SPED UP USING GPT, TO RUN WELL ON NEST, WIHOUT USING 2 GB OF RAM.
+
+
 import os
 
 # ---------------------------------------------------------
@@ -60,6 +63,56 @@ with open(
     word_count = int(f.readline())
     neuron_count = int(f.readline())
     vocab_size = int(f.readline())
+
+
+    # -----------------------------------------------------
+    # RHYME GROUPS
+    # -----------------------------------------------------
+
+    line = f.readline().strip()
+
+    if line != "RHYME_GROUPS":
+        print(
+            f"ERROR: Expected RHYME_GROUPS, got: {line!r}"
+        )
+        raise SystemExit(1)
+
+    rhyme_compatible = {}
+
+    while True:
+
+        line = f.readline().strip()
+
+        if line == "END_RHYME":
+            break
+
+        if not line:
+            continue
+
+        parts = line.split()
+
+        if len(parts) < 2:
+            continue
+
+        try:
+            ids = [
+                int(x)
+                for x in parts[1:]
+            ]
+        except ValueError:
+            continue
+
+        if len(ids) < 2:
+            continue
+
+        # Every word in this rhyme group can rhyme
+        # with every other word in the group.
+        for wid in ids:
+
+            if wid not in rhyme_compatible:
+                rhyme_compatible[wid] = set()
+
+            rhyme_compatible[wid].update(ids)
 
 
     # -----------------------------------------------------
@@ -181,6 +234,11 @@ print(
     f"{neuron_count} neurons"
 )
 
+print(
+    f"Rhyme words loaded: "
+    f"{len(rhyme_compatible)}"
+)
+
 
 # ---------------------------------------------------------
 # CONFIG
@@ -197,6 +255,9 @@ TOP_K = 25
 # Random noise is expensive on a small CPU.
 # Turn this on if you really want it.
 USE_NOISE = False
+
+# How strongly rhyme candidates should be preferred.
+RHYME_BOOST = 2.0
 
 
 # ---------------------------------------------------------
@@ -371,6 +432,17 @@ def generate_poem(text):
 
 
     # -----------------------------------------------------
+    # RHYME TARGET
+    # -----------------------------------------------------
+
+    # The final word of the previous line.
+    #
+    # None means the current line does not need to rhyme.
+    #
+    rhyme_target_id = None
+
+
+    # -----------------------------------------------------
     # GENERATION LOOP
     # -----------------------------------------------------
 
@@ -457,7 +529,7 @@ def generate_poem(text):
 
         # -------------------------------------------------
         # COMMON WORD BIAS
-        # -------------------------------------------------
+        # ---------------------------------------------------------
 
         scores -= word_bias
 
@@ -490,6 +562,28 @@ def generate_poem(text):
         scores[
             used_mask
         ] = -np.inf
+
+
+        # -------------------------------------------------
+        # RHYME BOOST
+        # -------------------------------------------------
+
+        if rhyme_target_id is not None:
+
+            compatible_ids = rhyme_compatible.get(
+                rhyme_target_id,
+                ()
+            )
+
+            for wid in compatible_ids:
+
+                if (
+                    0 < wid
+                    < word_count
+                    and not used_mask[wid]
+                ):
+
+                    scores[wid] += RHYME_BOOST
 
 
         # -------------------------------------------------
@@ -602,6 +696,63 @@ def generate_poem(text):
 
 
         # -------------------------------------------------
+        # NEWLINE
+        # -------------------------------------------------
+
+        if next_word == "<NEWLINE>":
+
+            # Don't allow two newlines together.
+            if (
+                generated_words
+                and generated_words[-1]
+                == "<NEWLINE>"
+            ):
+                continue
+
+            # Find the final actual word of this line.
+            previous_word_id = None
+
+            for word in reversed(
+                generated_words
+            ):
+
+                if word == "<NEWLINE>":
+                    break
+
+                wid = word2id.get(
+                    word
+                )
+
+                if wid is not None:
+
+                    previous_word_id = wid
+                    break
+
+            # The word ending this line becomes the
+            # rhyme target for the NEXT line.
+            if previous_word_id is not None:
+
+                rhyme_target_id = (
+                    previous_word_id
+                )
+
+            generated_words.append(
+                "<NEWLINE>"
+            )
+
+            ids.append(
+                best_id
+            )
+
+            # IMPORTANT:
+            # Don't add <NEWLINE> to used_mask.
+            #
+            # Otherwise you'd ban ALL future newlines.
+            #
+            continue
+
+
+        # -------------------------------------------------
         # ADD WORD
         # -------------------------------------------------
 
@@ -622,6 +773,37 @@ def generate_poem(text):
     # RETURN POEM
     # -----------------------------------------------------
 
-    return " ".join(
-        generated_words
+    lines = []
+    current_line = []
+
+    for word in generated_words:
+
+        if word == "<NEWLINE>":
+
+            if current_line:
+
+                lines.append(
+                    " ".join(
+                        current_line
+                    )
+                )
+
+            current_line = []
+
+        else:
+
+            current_line.append(
+                word
+            )
+
+    if current_line:
+
+        lines.append(
+            " ".join(
+                current_line
+            )
+        )
+
+    return "\n".join(
+        lines
     )

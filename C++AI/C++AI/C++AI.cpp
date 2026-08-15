@@ -10,6 +10,8 @@
 #include <iostream>
 #include <cstdlib>
 
+
+
 int main() {
 	
 	handleData();
@@ -100,11 +102,11 @@ int main() {
 
 	//ok, its training time!
 
-	//make the learning rate (how much our weights get adjusted based on changes
-	float learningRate = 0.01f;
+	//make the learning rate (how much our weights get adjusted based on changes)
+	float learningRate = 0.001f;
 
 	//handle epochs, how many times we go through the data!
-	int epochs = 50;
+	int epochs = 70;
 
 	for (int epoch = 0; epoch < epochs; epoch++)
 	{
@@ -177,7 +179,7 @@ int main() {
 
 			//ok we still punish bad guesses, however, we dont do this every step cause its super slow
 			//so, im going to do it every 10000ish guess, as that still teaches it, but saves us time
-			int NegativeSamplesNum = 15; //punish 15 words
+			int NegativeSamplesNum = 64; //punish 64 words
 
 			
 			for (int i = 0; i < NegativeSamplesNum; i++)
@@ -233,8 +235,6 @@ int main() {
 	}
 
 		
-	
-
 	//ok we are gonna save the model! however we need to rewrite a few things, as doing .json sucks
 	//so im just gonna save it to a txt file
 
@@ -255,6 +255,18 @@ int main() {
 	//then we save the vocab size
 	modelFile << vocab.size() << "\n"; //we make a new line after saying how many words there are!
 
+	//save the rhyme data groups
+	modelFile << "RHYME_GROUPS\n";
+	for (const auto& group : rhymeGroups) //for each part in the group
+	{
+		if (group.second.size() < 2) continue; //skip if small
+		modelFile << group.first << " "; //add the first group, with a space
+		for (int id : group.second) { //for each word that is assigned to the group
+			modelFile << id << " ";
+		}
+		modelFile << "\n"; //space
+	}
+	modelFile << "END_RHYME\n";
 
 	//then we should write out each word and its ID pairs
 
@@ -263,7 +275,7 @@ int main() {
 	{
 		modelFile << pair.first << " " << pair.second << "\n";
 	}
-
+	
 
 	//save input and output weights, and there neurons
 	for (int w = 0; w < wordCount; w++)

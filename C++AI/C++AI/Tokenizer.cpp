@@ -14,7 +14,34 @@ std::string poemText; //we dont want this accessable
 std::vector<int> numTokens; //global, this is for our []
 std::unordered_map<std::string, int> wordID; //global, for our wordID {}
 std::unordered_map<int, std::string> vocab; //global, for our vocab {}
+std::unordered_map<std::string, std::vector<int>> rhymeGroups; //global, for our Rhyme holding { < >}
 
+//convert our words into rhyme's
+std::string getRhymeKey(std::string word)
+{
+	//first skip if its a newline
+	if (word == "<NEWLINE>")
+		return word;
+
+	//the way i think i want to do this, is that something like cat, hat, stat, all end in (at) so to be basic, off the word count im going to handle it
+	//i probably want to lowercase, as i havent done that yet (still lol)
+	std::string w = word; //make a temp var
+	std::transform(w.begin(), w.end(), w.begin(), ::tolower);
+
+	//now lets rm the stuff
+	if (w.length() <= 2)
+	{
+		return w; //small word, so lets just skip
+	}
+	else if (w.length() == 3)
+	{
+		return w.substr(1); //convert 'cat' -> at
+	}
+	else
+	{
+		return w.substr(w.length() - 3); //last 3 lets
+	}
+}
 
 int token()
 {
@@ -93,11 +120,20 @@ int token()
 	//finaly we have our num tokens!
 	std::stringstream tokenStream(poemText); //we need to make a new one, cause we alr made it to the end of the last one!
 
-	//look through each word, and conver the word into the id!
+	//look through each word, and convert the word into the id!
 	while (tokenStream >> currentWord)
 	{
 		//we add to our tokens, by getting the word id out of the current word!
 		numTokens.push_back(wordID[currentWord]);
+	}
+
+	//handle converting each word to a group id
+	for (const auto& pair : vocab)
+	{
+		int wordId = pair.first; //grab the first pair (word id)
+		std::string word = pair.second; //grab the second pair (word)
+		std::string key = getRhymeKey(word); //send it to get the key
+		rhymeGroups[key].push_back(wordId); //upload it
 	}
 
 

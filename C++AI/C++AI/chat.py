@@ -1,29 +1,90 @@
-
 import os
 import numpy as np
 
-# Optional rhyming. Install with: pip install pronouncing
-try:
-    import pronouncing
-    USE_RHYMES = True
-except Exception:
-    USE_RHYMES = False
+MODEL_PATH = "poem_model.txt"
 
-# --- LOAD MODEL SAFELY ---
+# ---------------------------------------------------------
+# LOAD MODEL
+# ---------------------------------------------------------
+
 print("Loading model...")
 
-if not os.path.exists("poem_model.txt"):
+if not os.path.exists(MODEL_PATH):
     print("ERROR: poem_model.txt not found. Train the C++ model first!")
     exit()
 
-with open("poem_model.txt", encoding="utf-8", errors="ignore") as f:
+with open(
+    MODEL_PATH,
+    encoding="utf-8",
+    errors="ignore"
+) as f:
+
     word_count = int(f.readline())
     neuron_count = int(f.readline())
     vocab_size = int(f.readline())
 
-    id2word, word2id = {}, {}
+    print(f"Word count:   {word_count}")
+    print(f"Neuron count: {neuron_count}")
+    print(f"Vocab size:   {vocab_size}")
+
+    # -----------------------------------------------------
+    # RHYME GROUPS
+    # -----------------------------------------------------
+
+    line = f.readline().strip()
+
+    if line != "RHYME_GROUPS":
+        print(
+            f"ERROR: Expected RHYME_GROUPS, got {line!r}"
+        )
+        exit()
+
+    rhyme_compatible = {}
+
+    while True:
+
+        line = f.readline().strip()
+
+        if line == "END_RHYME":
+            break
+
+        if not line:
+            continue
+
+        parts = line.split()
+
+        if len(parts) < 2:
+            continue
+
+        try:
+            ids = [
+                int(x)
+                for x in parts[1:]
+            ]
+        except ValueError:
+            continue
+
+        if len(ids) < 2:
+            continue
+
+        # Every word in this group can rhyme
+        # with every other word in the group.
+        for wid in ids:
+
+            if wid not in rhyme_compatible:
+                rhyme_compatible[wid] = set()
+
+            rhyme_compatible[wid].update(ids)
+
+    # -----------------------------------------------------
+    # VOCABULARY
+    # -----------------------------------------------------
+
+    id2word = {}
+    word2id = {}
 
     for _ in range(vocab_size):
+
         line = f.readline().strip()
 
         if not line:
@@ -34,52 +95,129 @@ with open("poem_model.txt", encoding="utf-8", errors="ignore") as f:
         if len(parts) < 2:
             continue
 
-        wid, word = int(parts[0]), parts[1]
+        try:
+            wid = int(parts[0])
+        except ValueError:
+            continue
+
+        word = parts[1]
 
         id2word[wid] = word
         word2id[word] = wid
 
+    # -----------------------------------------------------
+    # SAFE WEIGHT LOADER
+    # -----------------------------------------------------
+
     def safe_load(rows):
+
         data = []
 
         for _ in range(rows):
-            vals = []
 
-            for x in f.readline().split():
+            values = []
+
+            line = f.readline()
+
+            if not line:
+                line = ""
+
+            for x in line.split():
+
                 try:
-                    v = float(x)
-                    vals.append(v if np.isfinite(v) else 0.0)
+                    value = float(x)
+
+                    if not np.isfinite(value):
+                        value = 0.0
+
                 except ValueError:
-                    vals.append(0.0)
+                    value = 0.0
 
-            # Pad or trim to ensure exact shape match
-            while len(vals) < neuron_count:
-                vals.append(0.0)
+                values.append(value)
 
-            vals = vals[:neuron_count]
-            data.append(vals)
+            # Pad
+            while len(values) < neuron_count:
+                values.append(0.0)
 
-        return np.array(data, dtype=np.float32)
+            # Trim
+            values = values[:neuron_count]
 
+            data.append(values)
+
+        return np.array(
+            data,
+            dtype=np.float32
+        )
+
+    print("Loading input weights...")
     weights = safe_load(word_count)
+
+    print("Loading output weights...")
     out_weights = safe_load(word_count)
 
-print(f"Model loaded: {vocab_size} words, {neuron_count} neurons")
 
-# Low IDs are common words (tokenizer sorts by frequency).
-# Used as fallback for unknown prompts.
-common_ids = list(range(1, min(500, word_count)))
+print()
+print(
+    f"Model loaded: {len(id2word)} words, "
+    f"{neuron_count} neurons"
+)
+
+print(
+    f"Rhyme groups loaded: "
+    f"{len(rhyme_compatible)} words"
+)
+
+# ---------------------------------------------------------
+# COMMON WORD FALLBACK
+# ---------------------------------------------------------
+
+# Tokenizer sorts by frequency, so low IDs tend to be common.
+common_ids = list(
+    range(
+        1,
+        min(500, word_count)
+    )
+)
 
 if not common_ids:
-    common_ids = list(range(1, min(10, word_count)))
+    common_ids = list(
+        range(
+            1,
+            min(10, word_count)
+        )
+    )
+
+# ---------------------------------------------------------
+# SETTINGS
+# ---------------------------------------------------------
 
 CONTEXT = 12
 MAX_TOKENS = 120
+TOP_K = 25
 
-print("\n--- AI Poet (type 'exit' to stop) ---")
+# How strongly rhymes are preferred.
+RHYME_BOOST = 2.0
+
+print()
+print("--- AI Poet ---")
+print("Type 'exit' to stop.")
+print()
+
+# ---------------------------------------------------------
+# GENERATION LOOP
+# ---------------------------------------------------------
 
 while True:
-    text = input("> ").strip().lower()
+
+    try:
+        text = input("> ").strip().lower()
+
+    except (
+        KeyboardInterrupt,
+        EOFError
+    ):
+        print("\nbye.")
+        break
 
     if text == "exit":
         break
@@ -87,50 +225,66 @@ while True:
     if not text:
         continue
 
-    # Convert prompt to IDs
+    # -----------------------------------------------------
+    # PROMPT
+    # -----------------------------------------------------
+
     prompt_words = text.split()
 
-    ids = [
-        word2id.get(w, 0)
-        for w in prompt_words
-    ]
+    if not prompt_words:
+        continue
 
-    ids = [
-        i for i in ids
-        if i > 0
-    ]
-
-    # Use the first input word as the starting word.
-    # This lets the model build the poem from the user's word.
+    # User's first word becomes the first word.
     first_word = prompt_words[0]
-    first_id = word2id.get(first_word, 0)
 
-    # Fallback if the first word isn't in the vocabulary
+    first_id = word2id.get(
+        first_word,
+        0
+    )
+
+    # Unknown prompt -> random common word
     if first_id <= 0:
-        first_id = int(np.random.choice(common_ids))
-        first_word = id2word.get(first_id, "?")
 
-    # Start generation with the user's first word
-    generated_words = [first_word]
+        first_id = int(
+            np.random.choice(
+                common_ids
+            )
+        )
+
+        first_word = id2word.get(
+            first_id,
+            "the"
+        )
+
+    # -----------------------------------------------------
+    # INITIAL STATE
+    # -----------------------------------------------------
+
     ids = [first_id]
 
-    # Keep track of every generated word.
-    # A word can only appear once in the poem.
-    used_ids = {first_id}
+    generated_words = [first_word]
 
-    for step in range(MAX_TOKENS - 1):
+    used_ids = {
+        first_id
+    }
 
-        # Use recent tokens as context
+    # Last actual word of the previous line.
+    rhyme_target_id = None
+
+    # -----------------------------------------------------
+    # GENERATE
+    # -----------------------------------------------------
+
+    for step in range(
+        MAX_TOKENS - 1
+    ):
+
+        # Keep recent context only.
         current_ids = ids[-CONTEXT:]
 
-        # ---------------------------------------------------------
-        # 1. MATH MATCH
-        # Matches the C++ code:
-        #
-        # hiddenState[n] += weights[wordId][n]
-        # hiddenState[n] /= context
-        # clamp to [-1, 1]
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # 1. BUILD HIDDEN STATE
+        # -------------------------------------------------
 
         hidden = np.zeros(
             neuron_count,
@@ -140,81 +294,131 @@ while True:
         count = 0
 
         for wid in current_ids:
-            if wid > 0:
+
+            if (
+                wid > 0
+                and wid < word_count
+            ):
+
                 hidden += weights[wid]
                 count += 1
 
-        # Divide by CONTEXT to match C++ exactly
+        # Match the C++ behavior.
         if count > 0:
+
             hidden /= float(CONTEXT)
+
             hidden = np.clip(
                 hidden,
                 -1.0,
                 1.0
             )
 
-        # ---------------------------------------------------------
-        # 2. SCORE ALL WORDS
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # 2. SCORE WORDS
+        # -------------------------------------------------
 
         scores = out_weights @ hidden
-        scores = scores.astype(np.float32)
 
-        # Ban padding ID
-        scores[0] = -999999.0
-
-        # Tiny bias toward common words
-        scores[1:] -= (
-            np.arange(
-                1,
-                word_count,
-                dtype=np.float32
-            ) * 0.000001
+        scores = scores.astype(
+            np.float32
         )
 
-        # Tiny noise for variety
+        # Never choose padding.
+        scores[0] = -np.inf
+
+        # Tiny bias toward common words.
+        if word_count > 1:
+
+            scores[1:] -= (
+                np.arange(
+                    1,
+                    word_count,
+                    dtype=np.float32
+                ) * 0.000001
+            )
+
+        # Tiny randomness.
         scores += np.random.normal(
             0.0,
             0.001,
             size=scores.shape
         ).astype(np.float32)
 
-        # ---------------------------------------------------------
-        # 3. NEVER REPEAT A WORD
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # 3. NEVER REPEAT WORDS
+        # -------------------------------------------------
 
         for used_id in used_ids:
-            if used_id > 0 and used_id < word_count:
-                scores[used_id] = -999999.0
 
-        # ---------------------------------------------------------
-        # 4. GET BEST CANDIDATES
-        # ---------------------------------------------------------
+            if (
+                used_id > 0
+                and used_id < word_count
+            ):
 
-        top_indices = np.argsort(scores)[-25:][::-1]
+                scores[used_id] = -np.inf
+
+        # -------------------------------------------------
+        # 4. RHYME BOOST
+        # -------------------------------------------------
+
+        if rhyme_target_id is not None:
+
+            compatible_ids = rhyme_compatible.get(
+                rhyme_target_id,
+                set()
+            )
+
+            for wid in compatible_ids:
+
+                if (
+                    wid > 0
+                    and wid < word_count
+                    and wid not in used_ids
+                ):
+
+                    scores[wid] += RHYME_BOOST
+
+        # -------------------------------------------------
+        # 5. TOP CANDIDATES
+        # -------------------------------------------------
+
+        candidate_count = min(
+            TOP_K,
+            word_count - 1
+        )
+
+        if candidate_count <= 0:
+            break
+
+        top_indices = np.argsort(
+            scores
+        )[-candidate_count:][::-1]
 
         top_indices = [
             int(i)
             for i in top_indices
             if (
                 i > 0
-                and scores[i] > -999998.0
-                and i not in used_ids
+                and i < word_count
+                and np.isfinite(scores[i])
             )
         ]
-
-        # ---------------------------------------------------------
-        # 5. CHOOSE NEXT WORD
-        # ---------------------------------------------------------
 
         if not top_indices:
             break
 
-        # Pick randomly from top 3 to keep some variety
+        # -------------------------------------------------
+        # 6. PICK WORD
+        # -------------------------------------------------
+
         best_id = int(
             np.random.choice(
                 top_indices[
-                    :min(3, len(top_indices))
+                    :min(
+                        3,
+                        len(top_indices)
+                    )
                 ]
             )
         )
@@ -224,21 +428,117 @@ while True:
             "?"
         )
 
-        # If somehow invalid, stop
         if next_word == "?":
             break
 
-        # Add the new word
-        generated_words.append(next_word)
-        ids.append(best_id)
-        used_ids.add(best_id)
+        # -------------------------------------------------
+        # 7. NEWLINE
+        # -------------------------------------------------
 
-    # -------------------------------------------------------------
-    # PRINT POEM
-    # -------------------------------------------------------------
+        if next_word == "<NEWLINE>":
 
-    poem = " ".join(generated_words)
+            # Don't allow two newlines in a row.
+            if (
+                generated_words
+                and generated_words[-1] == "<NEWLINE>"
+            ):
+                continue
 
-    print("\nAI Poem:")
-    print(poem)
+            # Find the final actual word
+            # from the current line.
+            previous_word_id = None
+
+            for word in reversed(
+                generated_words
+            ):
+
+                if word == "<NEWLINE>":
+                    break
+
+                wid = word2id.get(
+                    word
+                )
+
+                if wid is not None:
+                    previous_word_id = wid
+                    break
+
+            # That word becomes the rhyme target
+            # for the NEXT line.
+            if previous_word_id is not None:
+                rhyme_target_id = previous_word_id
+
+            generated_words.append(
+                "<NEWLINE>"
+            )
+
+            ids.append(
+                best_id
+            )
+
+            # Don't add newline to used_ids.
+            continue
+
+        # -------------------------------------------------
+        # 8. NORMAL WORD
+        # -------------------------------------------------
+
+        generated_words.append(
+            next_word
+        )
+
+        ids.append(
+            best_id
+        )
+
+        used_ids.add(
+            best_id
+        )
+
+    # -----------------------------------------------------
+    # FORMAT POEM
+    # -----------------------------------------------------
+
+    lines = []
+
+    current_line = []
+
+    for word in generated_words:
+
+        if word == "<NEWLINE>":
+
+            if current_line:
+
+                lines.append(
+                    " ".join(
+                        current_line
+                    )
+                )
+
+            current_line = []
+
+        else:
+
+            current_line.append(
+                word
+            )
+
+    if current_line:
+
+        lines.append(
+            " ".join(
+                current_line
+            )
+        )
+
+    # -----------------------------------------------------
+    # PRINT
+    # -----------------------------------------------------
+
+    print()
+    print("AI Poem:")
+
+    for line in lines:
+        print(line)
+
     print()

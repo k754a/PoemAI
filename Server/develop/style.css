@@ -1,6 +1,5 @@
 * {
     box-sizing: border-box;
-
 }
 
 html, body {
@@ -121,7 +120,6 @@ button[type="copy"]:hover  {
     overflow-wrap: anywhere;
     word-wrap: normal;
 }
-
 #Poetry {
    width: 100%;
    font-size: clamp(20px, 10vh, 35px);
@@ -133,7 +131,6 @@ button[type="copy"]:hover  {
    overflow-wrap: anywhere;
    color: #252525;
 }
-
 .copy-container {
     margin-top: 1px;
     display: none;
@@ -144,8 +141,6 @@ button[type="copy"]:hover  {
   
     text-align: center;
 }
-
-
 .bottom-container {
     position: fixed;
     left: 0;
@@ -203,7 +198,6 @@ button[type="github"]:hover  {
 
     transition: color 0.3s ease;
 }
-
 button[type="stardance"]  {
     position:absolute;
     right: 45px;
@@ -221,7 +215,6 @@ button[type="stardance"] img {
     height: 30px;
 
 }
-
 hr {
     border: none;
     height: 2px;
