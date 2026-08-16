@@ -81,11 +81,13 @@ raw = torch.from_file( #open the file, as a pytorch tensor.
 
 weights = raw[:input_n].view(
     context, word_count, neurons
-)
+).float().clone()
 
 out_weights = raw[input_n:].view(
     word_count, neurons
-).float()
+).float().clone()
+
+del raw #rm the raw weights
 
 # print( #DEBUG
 #     f"Vocab: {word_count} | "
@@ -103,6 +105,7 @@ common = list(range(1, min(500, word_count))) #handle the fallback, if the first
 
 #DONE LOADING -------------------------------->
 
+@torch.inference_mode() #make it a bit faster
 def generate_poem(prompt): #generate_poem
 
     prompt = prompt.strip().lower() #clean the prompt.
@@ -121,7 +124,7 @@ def generate_poem(prompt): #generate_poem
     used = {first: 1} #tracks how man times the word is used, adding the first word
     rhyme_target = None #we dont have a rhyme target yet.
 
-    hidden = torch.zeros( neurons, dtype=torch.float32 ) #build the hidden layer, (the neurons)
+    hidden = torch.zeros(neurons, dtype=torch.float32) #build the hidden layer, (the neurons)
 
     for _ in range(MAX_TOKENS - 1): # loop through each token, and build the next word - 1 for our first word
         hidden.zero_() #reset the hidden layer to 0 
