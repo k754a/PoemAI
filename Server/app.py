@@ -1,6 +1,6 @@
 #this will handle our server and the requests to it
 
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, Response, request, jsonify, render_template
 from AI.chat import generate_poem
 
 app = Flask(__name__)
@@ -21,11 +21,10 @@ def generate():
     if not word:
         return jsonify({"error": "Empty word provided"}), 400
     
-    #run the ai - send it for generation
-    output = generate_poem(word)
-
-    #send it back
-    return jsonify ({ "output" : output })
+    return Response(
+        generate_poem(word), 
+        mimetype='text/plain'
+    )
 
 if __name__ == '__main__':
     app.run("127.0.0.1", port=6767)

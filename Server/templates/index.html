@@ -89,11 +89,20 @@
 
                 if(!response.ok) {throw new Error("ERROR");} //if we get something, but isnt right
 
-                const data = await response.json(); //wait for our data
+                poetry.textContent = ""; //clear the poetry text
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
 
-                const output = data.output; //update the data
+                while(true)
+                {
+                    const { value, done } = await reader.read(); //read the stream
 
-                poetry.textContent = output; //update the veiw
+                    if(done) break; //if its done, break
+                    poetry.textContent += decoder.decode(value, { stream: true }); //append the chunk to the poetry text
+                }
+
+                poetry.textContent += decoder.decode(); //append the last chunk to the poetry text
+
                 document.querySelector(".copy-container").style.display = "flex"; //show the copy button    
             } catch (error) { //if we get an error overall
                 console.error("Something went wrong: ", error); 

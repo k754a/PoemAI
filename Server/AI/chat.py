@@ -110,7 +110,7 @@ def generate_poem(prompt): #generate_poem
 
     prompt = prompt.strip().lower() #clean the prompt.
     if not prompt: #if the prompt is empty, we return nothing
-        return ""
+        return 
 
     rng = random.Random() #generate a random number, to insure we pick diffrent words each time
 
@@ -124,6 +124,7 @@ def generate_poem(prompt): #generate_poem
     used = {first: 1} #tracks how man times the word is used, adding the first word
     rhyme_target = None #we dont have a rhyme target yet.
 
+    yield words[0]
     hidden = torch.zeros(neurons, dtype=torch.float32) #build the hidden layer, (the neurons)
 
     for _ in range(MAX_TOKENS - 1): # loop through each token, and build the next word - 1 for our first word
@@ -180,23 +181,12 @@ def generate_poem(prompt): #generate_poem
 
             words.append(word) # append the generated words to it
             ids.append(best) #append the id's of the words
+
+            yield "\n"
             continue #skip
 
         words.append(word) #if its not a newline, still append the words to it
         ids.append(best) #append the id's of the words
         used[best] = used.get(best, 0) + 1 # update the counter for repeated words
 
-    lines, line = [], [] #now hold the compleated poem, and the lines being built
-
-    for word in words: # go through every word
-        if word == "<NEWLINE>": #if the word is a new line
-            if line: #if the line is not empty
-                lines.append(" ".join(line)) # we create a new line
-            line = [] # set it back to blank
-        else:
-            line.append(word) #we just add the word onto the line
-
-    if line: #if the line is not empty
-        lines.append(" ".join(line)) #we add the last line to the lines
-
-    return "\n".join(lines) #return the final join
+        yield " " + word
