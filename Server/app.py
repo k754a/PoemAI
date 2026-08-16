@@ -11,11 +11,17 @@ def index():
 
 @app.route('/generate', methods = ["POST"])
 def generate():
-    data = request.get_json()
+    data = request.get_json(silent=True) 
 
-    word = data["word"]
+    if not data or "word" not in data:
+        return jsonify({"error": "No word provided"}), 400
+    
+    word = data["word"].strip()
 
-    #run the ai
+    if not word:
+        return jsonify({"error": "Empty word provided"}), 400
+    
+    #run the ai - send it for generation
     output = generate_poem(word)
 
     #send it back

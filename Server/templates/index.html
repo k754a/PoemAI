@@ -91,7 +91,7 @@
 
                 const data = await response.json(); //wait for our data
 
-                output = data.output; //update the data
+                const output = data.output; //update the data
 
                 poetry.textContent = output; //update the veiw
                 document.querySelector(".copy-container").style.display = "flex"; //show the copy button    
