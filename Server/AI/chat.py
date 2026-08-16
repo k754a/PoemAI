@@ -1,6 +1,6 @@
 import os, torch, random #imports, import the os, torch, and random
 
-torch.set_num_threads(2)
+torch.set_num_threads(1)
 torch.set_num_interop_threads(1) #set the threads up to prevent using a lot, as NEST is small
 
 
