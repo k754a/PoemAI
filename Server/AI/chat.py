@@ -1,6 +1,6 @@
 import os, torch, random #imports, import the os, torch, and random
 
-torch.set_num_threads(1)
+torch.set_num_threads(2)
 torch.set_num_interop_threads(1) #set the threads up to prevent using a lot, as NEST is small
 
 
@@ -77,7 +77,7 @@ raw = torch.from_file( #open the file, as a pytorch tensor.
     WEIGHTS, #grab the weights
     dtype = dtype, # set the datatype to the one we just got
     size = total_n #set the size to the total number of neruons
-)
+).clone() #clone it to be faster
 
 weights = raw[:input_n].view(
     context, word_count, neurons
