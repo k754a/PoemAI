@@ -129,7 +129,7 @@ int main() {
     //ok, its training time!
 
     //make the learning rate (how much our weights get adjusted based on changes)
-    float learningRate = 0.001f;
+    float learningRate = 0.05f;
 
     //handle epochs, how many times we go through the data!
     int epochs = 400;

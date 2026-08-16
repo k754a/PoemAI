@@ -41,7 +41,7 @@ int handleData()
 
 		//make a list of our unwanted chars
 
-		std::string remove_chars = "/\\.,:;'+=-|\"'!@#?[]{}$%^&*())1234567890";
+		std::string remove_chars = "/\\.,:;'+=-|\"'!@#?[]_{}$%^&*())1234567890";
 
 		//loop backwards
 		std::string cleanedText;
