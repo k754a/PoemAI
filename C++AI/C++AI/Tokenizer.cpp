@@ -123,6 +123,13 @@ int token()
 	//look through each word, and convert the word into the id!
 	while (tokenStream >> currentWord)
 	{
+		if (currentWord != "<NEWLINE>")
+		{
+			for (char& c : currentWord)
+			{
+				c = (char)tolower((unsigned char)c);
+			}
+		}
 		//we add to our tokens, by getting the word id out of the current word!
 		numTokens.push_back(wordID[currentWord]);
 	}

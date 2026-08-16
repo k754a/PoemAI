@@ -1,1 +1,2 @@
 poem_model-0.7m.model filter=lfs diff=lfs merge=lfs -text
+poem_weights.bin filter=lfs diff=lfs merge=lfs -text

@@ -2,6 +2,7 @@ import os
 import numpy as np
 
 MODEL_PATH = "poem_model.txt"
+WEIGHTS_PATH = "poem_weights.bin"
 
 # ---------------------------------------------------------
 # LOAD MODEL
@@ -11,7 +12,11 @@ print("Loading model...")
 
 if not os.path.exists(MODEL_PATH):
     print("ERROR: poem_model.txt not found. Train the C++ model first!")
-    exit()
+    raise SystemExit
+
+if not os.path.exists(WEIGHTS_PATH):
+    print("ERROR: poem_weights.bin not found. Train the C++ model first!")
+    raise SystemExit
 
 with open(
     MODEL_PATH,
@@ -21,10 +26,12 @@ with open(
 
     word_count = int(f.readline())
     neuron_count = int(f.readline())
+    context = int(f.readline())
     vocab_size = int(f.readline())
 
     print(f"Word count:   {word_count}")
     print(f"Neuron count: {neuron_count}")
+    print(f"Context:      {context}")
     print(f"Vocab size:   {vocab_size}")
 
     # -----------------------------------------------------
@@ -37,7 +44,7 @@ with open(
         print(
             f"ERROR: Expected RHYME_GROUPS, got {line!r}"
         )
-        exit()
+        raise SystemExit
 
     rhyme_compatible = {}
 
@@ -105,67 +112,167 @@ with open(
         id2word[wid] = word
         word2id[word] = wid
 
-    # -----------------------------------------------------
-    # SAFE WEIGHT LOADER
-    # -----------------------------------------------------
 
-    def safe_load(rows):
+# ---------------------------------------------------------
+# LOAD BINARY WEIGHTS
+# ---------------------------------------------------------
 
-        data = []
+print("Loading binary weights...")
 
-        for _ in range(rows):
+# Number of float32 values in the input weights.
+input_values = (
+    context
+    * word_count
+    * neuron_count
+)
 
-            values = []
+# Number of float32 values in the output weights.
+output_values = (
+    word_count
+    * neuron_count
+)
 
-            line = f.readline()
+total_values = (
+    input_values
+    + output_values
+)
 
-            if not line:
-                line = ""
+# Each float32 is 4 bytes.
+expected_bytes = total_values * 4
 
-            for x in line.split():
+actual_bytes = os.path.getsize(
+    WEIGHTS_PATH
+)
 
-                try:
-                    value = float(x)
+print(
+    f"Expected weight file: "
+    f"{expected_bytes / (1024 ** 3):.2f} GB"
+)
 
-                    if not np.isfinite(value):
-                        value = 0.0
+print(
+    f"Actual weight file:   "
+    f"{actual_bytes / (1024 ** 3):.2f} GB"
+)
 
-                except ValueError:
-                    value = 0.0
+if actual_bytes != expected_bytes:
 
-                values.append(value)
+    print(
+        "ERROR: Binary weight file size does not match "
+        "the model dimensions!"
+    )
 
-            # Pad
-            while len(values) < neuron_count:
-                values.append(0.0)
+    print(
+        f"Expected: {expected_bytes:,} bytes"
+    )
 
-            # Trim
-            values = values[:neuron_count]
+    print(
+        f"Actual:   {actual_bytes:,} bytes"
+    )
 
-            data.append(values)
+    raise SystemExit
 
-        return np.array(
-            data,
-            dtype=np.float32
-        )
 
-    print("Loading input weights...")
-    weights = safe_load(word_count)
+# ---------------------------------------------------------
+# READ BINARY FILE
+# ---------------------------------------------------------
 
-    print("Loading output weights...")
-    out_weights = safe_load(word_count)
+all_weights = np.fromfile(
+    WEIGHTS_PATH,
+    dtype=np.float32
+)
+
+if all_weights.size != total_values:
+
+    print(
+        "ERROR: Loaded the wrong number of weight values!"
+    )
+
+    print(
+        f"Expected: {total_values:,}"
+    )
+
+    print(
+        f"Loaded:   {all_weights.size:,}"
+    )
+
+    raise SystemExit
+
+
+# ---------------------------------------------------------
+# SPLIT INPUT / OUTPUT WEIGHTS
+# ---------------------------------------------------------
+
+input_end = input_values
+
+input_data = all_weights[:input_end]
+
+output_data = all_weights[input_end:]
+
+
+# ---------------------------------------------------------
+# RESHAPE INPUT WEIGHTS
+# ---------------------------------------------------------
+
+# C++ saves:
+#
+# weights[position][word][neuron]
+#
+# Shape:
+# context x word_count x neuron_count
+
+weights = input_data.reshape(
+    context,
+    word_count,
+    neuron_count
+)
+
+
+# ---------------------------------------------------------
+# RESHAPE OUTPUT WEIGHTS
+# ---------------------------------------------------------
+
+# C++ saves:
+#
+# outputWeights[word][neuron]
+#
+# Shape:
+# word_count x neuron_count
+
+out_weights = output_data.reshape(
+    word_count,
+    neuron_count
+)
+
+
+# ---------------------------------------------------------
+# CLEAN UP TEMPORARY ARRAY
+# ---------------------------------------------------------
+
+del all_weights
+del input_data
+del output_data
 
 
 print()
 print(
     f"Model loaded: {len(id2word)} words, "
-    f"{neuron_count} neurons"
+    f"{neuron_count} neurons, "
+    f"{context} context"
 )
 
 print(
     f"Rhyme groups loaded: "
     f"{len(rhyme_compatible)} words"
 )
+
+print(
+    f"Input weights shape:  {weights.shape}"
+)
+
+print(
+    f"Output weights shape: {out_weights.shape}"
+)
+
 
 # ---------------------------------------------------------
 # COMMON WORD FALLBACK
@@ -180,6 +287,7 @@ common_ids = list(
 )
 
 if not common_ids:
+
     common_ids = list(
         range(
             1,
@@ -187,21 +295,27 @@ if not common_ids:
         )
     )
 
+
 # ---------------------------------------------------------
 # SETTINGS
 # ---------------------------------------------------------
 
-CONTEXT = 12
+CONTEXT = context
 MAX_TOKENS = 120
 TOP_K = 25
 
-# How strongly rhymes are preferred.
-RHYME_BOOST = 2.0
+# Keep this fairly small while the model is still weak.
+RHYME_BOOST = 0.25
+
+# Discourage repetition without completely banning it.
+REPEAT_PENALTY = 0.75
+
 
 print()
 print("--- AI Poet ---")
 print("Type 'exit' to stop.")
 print()
+
 
 # ---------------------------------------------------------
 # GENERATION LOOP
@@ -264,11 +378,12 @@ while True:
 
     generated_words = [first_word]
 
-    used_ids = {
-        first_id
+    # Track repeated words, but do not completely ban them.
+    word_usage = {
+        first_id: 1
     }
 
-    # Last actual word of the previous line.
+    # Last actual word from the previous line.
     rhyme_target_id = None
 
     # -----------------------------------------------------
@@ -283,7 +398,7 @@ while True:
         current_ids = ids[-CONTEXT:]
 
         # -------------------------------------------------
-        # 1. BUILD HIDDEN STATE
+        # BUILD HIDDEN STATE
         # -------------------------------------------------
 
         hidden = np.zeros(
@@ -291,31 +406,44 @@ while True:
             dtype=np.float32
         )
 
-        count = 0
+        # IMPORTANT:
+        #
+        # C++ now stores:
+        #
+        # weights[position][word][neuron]
+        #
+        # so the position matters.
+        #
+        # Example:
+        #
+        # weights[0, word_id]
+        # weights[1, word_id]
+        # weights[2, word_id]
+        #
+        # are all different.
 
-        for wid in current_ids:
+        for position, wid in enumerate(current_ids):
 
             if (
                 wid > 0
                 and wid < word_count
+                and position < CONTEXT
             ):
 
-                hidden += weights[wid]
-                count += 1
+                hidden += weights[
+                    position,
+                    wid
+                ]
 
-        # Match the C++ behavior.
-        if count > 0:
 
-            hidden /= float(CONTEXT)
-
-            hidden = np.clip(
-                hidden,
-                -1.0,
-                1.0
-            )
+        hidden = np.clip(
+            hidden,
+            -1.0,
+            1.0
+        )
 
         # -------------------------------------------------
-        # 2. SCORE WORDS
+        # SCORE WORDS
         # -------------------------------------------------
 
         scores = out_weights @ hidden
@@ -335,31 +463,28 @@ while True:
                     1,
                     word_count,
                     dtype=np.float32
-                ) * 0.000001
+                )
+                * 0.000001
             )
 
-        # Tiny randomness.
-        scores += np.random.normal(
-            0.0,
-            0.001,
-            size=scores.shape
-        ).astype(np.float32)
-
         # -------------------------------------------------
-        # 3. NEVER REPEAT WORDS
+        # REPETITION PENALTY
         # -------------------------------------------------
 
-        for used_id in used_ids:
+        for used_id, count in word_usage.items():
 
             if (
                 used_id > 0
                 and used_id < word_count
             ):
 
-                scores[used_id] = -np.inf
+                scores[used_id] -= (
+                    REPEAT_PENALTY
+                    * count
+                )
 
         # -------------------------------------------------
-        # 4. RHYME BOOST
+        # RHYME BOOST
         # -------------------------------------------------
 
         if rhyme_target_id is not None:
@@ -374,13 +499,22 @@ while True:
                 if (
                     wid > 0
                     and wid < word_count
-                    and wid not in used_ids
                 ):
 
                     scores[wid] += RHYME_BOOST
 
         # -------------------------------------------------
-        # 5. TOP CANDIDATES
+        # TINY RANDOMNESS
+        # -------------------------------------------------
+
+        scores += np.random.normal(
+            0.0,
+            0.001,
+            size=scores.shape
+        ).astype(np.float32)
+
+        # -------------------------------------------------
+        # TOP CANDIDATES
         # -------------------------------------------------
 
         candidate_count = min(
@@ -409,19 +543,10 @@ while True:
             break
 
         # -------------------------------------------------
-        # 6. PICK WORD
+        # PICK WORD
         # -------------------------------------------------
 
-        best_id = int(
-            np.random.choice(
-                top_indices[
-                    :min(
-                        3,
-                        len(top_indices)
-                    )
-                ]
-            )
-        )
+        best_id = int(top_indices[0])
 
         next_word = id2word.get(
             best_id,
@@ -432,7 +557,7 @@ while True:
             break
 
         # -------------------------------------------------
-        # 7. NEWLINE
+        # NEWLINE
         # -------------------------------------------------
 
         if next_word == "<NEWLINE>":
@@ -460,13 +585,17 @@ while True:
                 )
 
                 if wid is not None:
+
                     previous_word_id = wid
                     break
 
             # That word becomes the rhyme target
             # for the NEXT line.
             if previous_word_id is not None:
-                rhyme_target_id = previous_word_id
+
+                rhyme_target_id = (
+                    previous_word_id
+                )
 
             generated_words.append(
                 "<NEWLINE>"
@@ -476,11 +605,11 @@ while True:
                 best_id
             )
 
-            # Don't add newline to used_ids.
+            # Don't track newline as a repeated word.
             continue
 
         # -------------------------------------------------
-        # 8. NORMAL WORD
+        # NORMAL WORD
         # -------------------------------------------------
 
         generated_words.append(
@@ -491,8 +620,12 @@ while True:
             best_id
         )
 
-        used_ids.add(
-            best_id
+        word_usage[best_id] = (
+            word_usage.get(
+                best_id,
+                0
+            )
+            + 1
         )
 
     # -----------------------------------------------------

@@ -41,22 +41,25 @@ int handleData()
 
 		//make a list of our unwanted chars
 
-		std::string remove_chars = "/\\.,:;'+=-|\"'!@#$%^&*())1234567890";
+		std::string remove_chars = "/\\.,:;'+=-|\"'!@#?[]{}$%^&*())1234567890";
 
 		//loop backwards
-		for (int i = poemText.length() - 1; i >= 0; i--)
+		std::string cleanedText;
+		cleanedText.reserve(poemText.size());
+		for (char c : poemText)
 		{
 			//ok, now that we loop through each char, lets check
 			//super easy, like my c++ parser!
 			//we check to see if we can find a char, that is the same in remove_chars
 			//then erase!
-			if (remove_chars.find(poemText[i]) != std::string::npos)
+			if (remove_chars.find(c) == std::string::npos)
 			{
 				//ok, we have found the char
 				//erase is slow, but idrc, as this will run once!
-				poemText.erase(i, 1);
+				cleanedText.push_back(c);
 			}
 		}
+		poemText.swap(cleanedText);
 
 		//teaches the ai new lines!
 		size_t pos = 0;

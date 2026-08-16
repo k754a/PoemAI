@@ -22,22 +22,19 @@ import numpy as np
 # PATHS
 # ---------------------------------------------------------
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(
-    BASE_DIR,
-    "poem_model-0.7m.model"
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
 )
 
+MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "poem_model.txt"
+)
 
-# ---------------------------------------------------------
-# OPTIONAL RHYMING
-# ---------------------------------------------------------
-
-try:
-    import pronouncing
-    USE_RHYMES = True
-except Exception:
-    USE_RHYMES = False
+WEIGHTS_PATH = os.path.join(
+    BASE_DIR,
+    "poem_weights.bin"
+)
 
 
 # ---------------------------------------------------------
@@ -46,12 +43,34 @@ except Exception:
 
 print("Loading model...")
 
-if not os.path.exists(MODEL_PATH):
+
+if not os.path.exists(
+    MODEL_PATH
+):
+
     print(
-        "ERROR: poem_model-0.7m.model not found!"
+        "ERROR: poem_model.txt not found. "
+        "Train the C++ model first!"
     )
+
     raise SystemExit(1)
 
+
+if not os.path.exists(
+    WEIGHTS_PATH
+):
+
+    print(
+        "ERROR: poem_weights.bin not found. "
+        "Train the C++ model first!"
+    )
+
+    raise SystemExit(1)
+
+
+# ---------------------------------------------------------
+# LOAD MODEL METADATA
+# ---------------------------------------------------------
 
 with open(
     MODEL_PATH,
@@ -59,10 +78,38 @@ with open(
     errors="ignore"
 ) as f:
 
-    # First three lines contain model information.
-    word_count = int(f.readline())
-    neuron_count = int(f.readline())
-    vocab_size = int(f.readline())
+    word_count = int(
+        f.readline()
+    )
+
+    neuron_count = int(
+        f.readline()
+    )
+
+    context = int(
+        f.readline()
+    )
+
+    vocab_size = int(
+        f.readline()
+    )
+
+
+    print(
+        f"Word count:   {word_count}"
+    )
+
+    print(
+        f"Neuron count: {neuron_count}"
+    )
+
+    print(
+        f"Context:      {context}"
+    )
+
+    print(
+        f"Vocab size:   {vocab_size}"
+    )
 
 
     # -----------------------------------------------------
@@ -71,48 +118,68 @@ with open(
 
     line = f.readline().strip()
 
+
     if line != "RHYME_GROUPS":
+
         print(
-            f"ERROR: Expected RHYME_GROUPS, got: {line!r}"
+            f"ERROR: Expected RHYME_GROUPS, "
+            f"got {line!r}"
         )
+
         raise SystemExit(1)
 
+
     rhyme_compatible = {}
+
 
     while True:
 
         line = f.readline().strip()
 
+
         if line == "END_RHYME":
             break
+
 
         if not line:
             continue
 
+
         parts = line.split()
+
 
         if len(parts) < 2:
             continue
 
+
         try:
+
             ids = [
                 int(x)
                 for x in parts[1:]
             ]
+
         except ValueError:
+
             continue
+
 
         if len(ids) < 2:
             continue
 
-        # Every word in this rhyme group can rhyme
+
+        # Every word in this group can rhyme
         # with every other word in the group.
         for wid in ids:
 
             if wid not in rhyme_compatible:
+
                 rhyme_compatible[wid] = set()
 
-            rhyme_compatible[wid].update(ids)
+
+            rhyme_compatible[wid].update(
+                ids
+            )
 
 
     # -----------------------------------------------------
@@ -122,121 +189,254 @@ with open(
     id2word = {}
     word2id = {}
 
-    for _ in range(vocab_size):
+
+    for _ in range(
+        vocab_size
+    ):
 
         line = f.readline().strip()
 
+
         if not line:
             continue
+
 
         parts = line.split(
             " ",
             1
         )
 
+
         if len(parts) < 2:
             continue
 
-        wid = int(parts[0])
+
+        try:
+
+            wid = int(
+                parts[0]
+            )
+
+        except ValueError:
+
+            continue
+
+
         word = parts[1]
+
 
         id2word[wid] = word
         word2id[word] = wid
 
 
-    # -----------------------------------------------------
-    # LOAD WEIGHTS
-    # -----------------------------------------------------
-    #
-    # The model is stored as text, so we load it directly
-    # into float32 arrays to keep RAM usage reasonable.
-    #
-    # -----------------------------------------------------
+# ---------------------------------------------------------
+# LOAD BINARY WEIGHTS
+# ---------------------------------------------------------
+#
+# C++ now saves:
+#
+# weights[position][word][neuron]
+#
+# followed by:
+#
+# outputWeights[word][neuron]
+#
+# ---------------------------------------------------------
 
-    def safe_load(rows):
-
-        data = np.zeros(
-            (
-                rows,
-                neuron_count
-            ),
-            dtype=np.float32
-        )
-
-        for i in range(rows):
-
-            line = f.readline()
-
-            if not line:
-                break
-
-            try:
-
-                vals = np.fromstring(
-                    line,
-                    dtype=np.float32,
-                    sep=" "
-                )
-
-            except Exception:
-
-                vals = np.empty(
-                    0,
-                    dtype=np.float32
-                )
-
-            length = min(
-                len(vals),
-                neuron_count
-            )
-
-            if length > 0:
-
-                data[
-                    i,
-                    :length
-                ] = vals[
-                    :length
-                ]
-
-        return data
+print(
+    "Loading binary weights..."
+)
 
 
-    # Input/embedding weights.
-    weights = safe_load(
-        word_count
+input_values = (
+    context
+    * word_count
+    * neuron_count
+)
+
+
+output_values = (
+    word_count
+    * neuron_count
+)
+
+
+total_values = (
+    input_values
+    + output_values
+)
+
+
+expected_bytes = (
+    total_values
+    * 4
+)
+
+
+actual_bytes = os.path.getsize(
+    WEIGHTS_PATH
+)
+
+
+print(
+    f"Expected weight file: "
+    f"{expected_bytes / (1024 ** 3):.2f} GB"
+)
+
+
+print(
+    f"Actual weight file:   "
+    f"{actual_bytes / (1024 ** 3):.2f} GB"
+)
+
+
+if actual_bytes != expected_bytes:
+
+    print(
+        "ERROR: Binary weight file size does not "
+        "match the model dimensions!"
     )
 
-    # Output weights.
-    out_weights = safe_load(
-        word_count
+    print(
+        f"Expected: {expected_bytes:,} bytes"
     )
+
+    print(
+        f"Actual:   {actual_bytes:,} bytes"
+    )
+
+    raise SystemExit(1)
+
+
+# ---------------------------------------------------------
+# MEMORY MAP BINARY FILE
+# ---------------------------------------------------------
+#
+# np.fromfile() works, but it loads the complete array
+# into RAM first.
+#
+# memmap() lets the OS handle the file mapping and avoids
+# making another giant temporary copy.
+#
+# ---------------------------------------------------------
+
+all_weights = np.memmap(
+    WEIGHTS_PATH,
+    dtype=np.float32,
+    mode="r",
+    shape=(total_values,)
+)
+
+
+# ---------------------------------------------------------
+# SPLIT INPUT / OUTPUT WEIGHTS
+# ---------------------------------------------------------
+
+input_end = (
+    input_values
+)
+
+
+input_data = all_weights[
+    :input_end
+]
+
+
+output_data = all_weights[
+    input_end:
+]
+
+
+# ---------------------------------------------------------
+# RESHAPE INPUT WEIGHTS
+# ---------------------------------------------------------
+#
+# C++ saves:
+#
+# weights[position][word][neuron]
+#
+# Shape:
+#
+# context x word_count x neuron_count
+#
+# ---------------------------------------------------------
+
+weights = input_data.reshape(
+    context,
+    word_count,
+    neuron_count
+)
+
+
+# ---------------------------------------------------------
+# RESHAPE OUTPUT WEIGHTS
+# ---------------------------------------------------------
+#
+# C++ saves:
+#
+# outputWeights[word][neuron]
+#
+# Shape:
+#
+# word_count x neuron_count
+#
+# ---------------------------------------------------------
+
+out_weights = output_data.reshape(
+    word_count,
+    neuron_count
+)
 
 
 # ---------------------------------------------------------
 # ENSURE NUMPY-FRIENDLY MEMORY LAYOUT
 # ---------------------------------------------------------
+#
+# Do NOT copy these arrays.
+#
+# The memmap already gives us a valid contiguous view.
+#
+# Copying here would basically say:
+# "hey VPS, can we have another huge RAM problem?"
+#
+# ---------------------------------------------------------
 
-weights = np.ascontiguousarray(
+weights = np.asarray(
     weights,
     dtype=np.float32
 )
 
-out_weights = np.ascontiguousarray(
+out_weights = np.asarray(
     out_weights,
     dtype=np.float32
 )
 
 
-print(
-    f"Model loaded: "
-    f"{vocab_size} words, "
-    f"{neuron_count} neurons"
-)
+print()
 
 print(
-    f"Rhyme words loaded: "
-    f"{len(rhyme_compatible)}"
+    f"Model loaded: "
+    f"{len(id2word)} words, "
+    f"{neuron_count} neurons, "
+    f"{context} context"
+)
+
+
+print(
+    f"Rhyme groups loaded: "
+    f"{len(rhyme_compatible)} words"
+)
+
+
+print(
+    f"Input weights shape:  "
+    f"{weights.shape}"
+)
+
+
+print(
+    f"Output weights shape: "
+    f"{out_weights.shape}"
 )
 
 
@@ -244,20 +444,23 @@ print(
 # CONFIG
 # ---------------------------------------------------------
 
-CONTEXT = 12
+CONTEXT = context
 
-# 60 gives the same approximate length as your old version.
 MAX_TOKENS = 60
 
-# We only need a few candidates.
 TOP_K = 25
 
+
 # Random noise is expensive on a small CPU.
-# Turn this on if you really want it.
 USE_NOISE = False
 
-# How strongly rhyme candidates should be preferred.
-RHYME_BOOST = 2.0
+
+# Keep this relatively small.
+RHYME_BOOST = 0.25
+
+
+# Discourage repetition without completely banning it.
+REPEAT_PENALTY = 0.75
 
 
 # ---------------------------------------------------------
@@ -271,8 +474,7 @@ rng = np.random.default_rng()
 # COMMON WORD FALLBACK
 # ---------------------------------------------------------
 #
-# Low IDs are common words because your tokenizer sorts
-# vocabulary by frequency.
+# Tokenizer sorts by frequency, so low IDs tend to be common.
 #
 # ---------------------------------------------------------
 
@@ -284,6 +486,7 @@ common_ids = np.arange(
     ),
     dtype=np.int32
 )
+
 
 if len(common_ids) == 0:
 
@@ -315,6 +518,7 @@ word_bias = (
     * 0.000001
 )
 
+
 word_bias[0] = 0.0
 
 
@@ -330,6 +534,7 @@ def generate_poem(text):
 
     text = text.strip().lower()
 
+
     if not text:
         return ""
 
@@ -338,13 +543,8 @@ def generate_poem(text):
     # REQUEST-LOCAL BUFFERS
     # -----------------------------------------------------
     #
-    # These used to be global.
-    #
-    # That's bad for Flask because two users generating
-    # poems at the same time could overwrite each other's
-    # buffers.
-    #
-    # They're tiny compared to the actual model.
+    # These are local to each request so Flask users do not
+    # stomp over each other's generation state.
     #
     # -----------------------------------------------------
 
@@ -353,15 +553,17 @@ def generate_poem(text):
         dtype=np.float32
     )
 
+
     scores = np.empty(
         word_count,
         dtype=np.float32
     )
 
-    used_mask = np.zeros(
-        word_count,
-        dtype=np.bool_
-    )
+
+    # Used words still need counts because your original
+    # model used a repetition penalty that becomes stronger
+    # when a word is repeated more.
+    word_usage = {}
 
 
     # -----------------------------------------------------
@@ -369,6 +571,7 @@ def generate_poem(text):
     # -----------------------------------------------------
 
     prompt_words = text.split()
+
 
     if not prompt_words:
         return ""
@@ -379,6 +582,7 @@ def generate_poem(text):
     # -----------------------------------------------------
 
     first_word = prompt_words[0]
+
 
     first_id = word2id.get(
         first_word,
@@ -400,7 +604,7 @@ def generate_poem(text):
 
         first_word = id2word.get(
             first_id,
-            "?"
+            "the"
         )
 
 
@@ -412,6 +616,7 @@ def generate_poem(text):
         first_word
     ]
 
+
     ids = [
         first_id
     ]
@@ -421,24 +626,19 @@ def generate_poem(text):
     # TRACK USED WORDS
     # -----------------------------------------------------
 
-    used_mask.fill(False)
-
     if (
         0 < first_id
         < word_count
     ):
 
-        used_mask[first_id] = True
+        word_usage[first_id] = 1
 
 
     # -----------------------------------------------------
     # RHYME TARGET
     # -----------------------------------------------------
 
-    # The final word of the previous line.
-    #
-    # None means the current line does not need to rhyme.
-    #
+    # Last actual word from the previous line.
     rhyme_target_id = None
 
 
@@ -450,7 +650,6 @@ def generate_poem(text):
         MAX_TOKENS - 1
     ):
 
-
         # -------------------------------------------------
         # GET RECENT CONTEXT
         # -------------------------------------------------
@@ -461,39 +660,49 @@ def generate_poem(text):
 
 
         # -------------------------------------------------
-        # HIDDEN STATE
+        # BUILD HIDDEN STATE
         # -------------------------------------------------
         #
-        # OLD VERSION:
+        # IMPORTANT:
         #
-        # hidden = np.zeros(...)
+        # The C++ model is POSITION AWARE.
         #
-        # for wid in current_ids:
-        #     hidden += weights[wid]
+        # We cannot simply do:
         #
-        # That Python loop is slow.
+        # weights[current_ids]
         #
-        # NumPy performs the reduction in C instead.
+        # because position matters.
+        #
+        # We therefore add:
+        #
+        # weights[0, word]
+        # weights[1, word]
+        # weights[2, word]
+        #
+        # etc.
         #
         # -------------------------------------------------
 
-        hidden[:] = np.sum(
-            weights[current_ids],
-            axis=0,
-            dtype=np.float32
-        )
+        hidden.fill(0.0)
 
 
-        # -------------------------------------------------
-        # MATCH C++ MATH
-        # -------------------------------------------------
+        for position, wid in enumerate(
+            current_ids
+        ):
 
-        hidden /= float(
-            CONTEXT
-        )
+            if (
+                0 < wid
+                < word_count
+                and position < CONTEXT
+            ):
+
+                hidden += weights[
+                    position,
+                    wid
+                ]
 
 
-        # Keep hidden values between -1 and 1.
+        # Match the C++ behavior.
         np.clip(
             hidden,
             -1.0,
@@ -505,13 +714,6 @@ def generate_poem(text):
         # -------------------------------------------------
         # SCORE EVERY WORD
         # -------------------------------------------------
-        #
-        # Matrix-vector multiplication.
-        #
-        # out= allows NumPy to reuse our existing scores
-        # array instead of allocating another large one.
-        #
-        # -------------------------------------------------
 
         np.dot(
             out_weights,
@@ -520,28 +722,59 @@ def generate_poem(text):
         )
 
 
-        # -------------------------------------------------
-        # BAN PADDING TOKEN
-        # -------------------------------------------------
-
         scores[0] = -np.inf
 
 
         # -------------------------------------------------
         # COMMON WORD BIAS
-        # ---------------------------------------------------------
+        # -------------------------------------------------
 
         scores -= word_bias
 
 
         # -------------------------------------------------
-        # OPTIONAL RANDOM NOISE
+        # REPETITION PENALTY
         # -------------------------------------------------
-        #
-        # Disabled by default because creating an entire
-        # vocabulary-sized random array for every token is
-        # unnecessary CPU work.
-        #
+
+        for used_id, count in word_usage.items():
+
+            if (
+                0 < used_id
+                < word_count
+            ):
+
+                scores[used_id] -= (
+                    REPEAT_PENALTY
+                    * count
+                )
+
+
+        # -------------------------------------------------
+        # RHYME BOOST
+        # -------------------------------------------------
+
+        if rhyme_target_id is not None:
+
+            compatible_ids = rhyme_compatible.get(
+                rhyme_target_id,
+                ()
+            )
+
+
+            for wid in compatible_ids:
+
+                if (
+                    0 < wid
+                    < word_count
+                ):
+
+                    scores[wid] += (
+                        RHYME_BOOST
+                    )
+
+
+        # -------------------------------------------------
+        # OPTIONAL RANDOM NOISE
         # -------------------------------------------------
 
         if USE_NOISE:
@@ -556,47 +789,7 @@ def generate_poem(text):
 
 
         # -------------------------------------------------
-        # BAN WORDS ALREADY USED
-        # -------------------------------------------------
-
-        scores[
-            used_mask
-        ] = -np.inf
-
-
-        # -------------------------------------------------
-        # RHYME BOOST
-        # -------------------------------------------------
-
-        if rhyme_target_id is not None:
-
-            compatible_ids = rhyme_compatible.get(
-                rhyme_target_id,
-                ()
-            )
-
-            for wid in compatible_ids:
-
-                if (
-                    0 < wid
-                    < word_count
-                    and not used_mask[wid]
-                ):
-
-                    scores[wid] += RHYME_BOOST
-
-
-        # -------------------------------------------------
         # GET TOP K
-        # -------------------------------------------------
-        #
-        # np.argsort() sorts EVERYTHING.
-        #
-        # That's wasteful because we only care about the
-        # top 25.
-        #
-        # argpartition() finds the top section much faster.
-        #
         # -------------------------------------------------
 
         k = min(
@@ -604,9 +797,18 @@ def generate_poem(text):
             word_count - 1
         )
 
+
         if k <= 0:
             break
 
+
+        # -------------------------------------------------
+        # ARG PARTITION
+        # -------------------------------------------------
+        #
+        # Much faster than sorting the entire vocabulary.
+        #
+        # -------------------------------------------------
 
         top_indices = np.argpartition(
             scores,
@@ -620,50 +822,49 @@ def generate_poem(text):
 
         top_indices = top_indices[
             np.argsort(
-                scores[
-                    top_indices
-                ]
+                scores[top_indices]
             )[::-1]
         ]
 
 
         # -------------------------------------------------
-        # REMOVE INVALID CANDIDATES
+        # VALIDATE CANDIDATES
         # -------------------------------------------------
 
         valid = []
+
 
         for idx in top_indices:
 
             idx = int(idx)
 
+
             if idx <= 0:
                 continue
 
-            if used_mask[idx]:
-                continue
 
             if not np.isfinite(
                 scores[idx]
             ):
+
                 continue
+
 
             valid.append(
                 idx
             )
 
 
-        # Nothing left to generate.
         if not valid:
             break
 
 
         # -------------------------------------------------
-        # CHOOSE FROM TOP 3
+        # PICK FROM TOP 3
         # -------------------------------------------------
         #
-        # Picking from the top few prevents every poem from
-        # being exactly the same.
+        # Keeps generations from becoming completely
+        # deterministic while remaining cheap.
         #
         # -------------------------------------------------
 
@@ -671,6 +872,7 @@ def generate_poem(text):
             3,
             len(valid)
         )
+
 
         best_id = int(
             rng.choice(
@@ -701,16 +903,20 @@ def generate_poem(text):
 
         if next_word == "<NEWLINE>":
 
-            # Don't allow two newlines together.
+            # Don't allow two newlines in a row.
             if (
                 generated_words
                 and generated_words[-1]
                 == "<NEWLINE>"
             ):
+
                 continue
 
-            # Find the final actual word of this line.
+
+            # Find the final actual word
+            # from the current line.
             previous_word_id = None
+
 
             for word in reversed(
                 generated_words
@@ -719,62 +925,74 @@ def generate_poem(text):
                 if word == "<NEWLINE>":
                     break
 
+
                 wid = word2id.get(
                     word
                 )
 
+
                 if wid is not None:
 
                     previous_word_id = wid
+
                     break
 
-            # The word ending this line becomes the
-            # rhyme target for the NEXT line.
+
+            # That word becomes the rhyme target
+            # for the NEXT line.
             if previous_word_id is not None:
 
                 rhyme_target_id = (
                     previous_word_id
                 )
 
+
             generated_words.append(
                 "<NEWLINE>"
             )
+
 
             ids.append(
                 best_id
             )
 
+
             # IMPORTANT:
-            # Don't add <NEWLINE> to used_mask.
-            #
-            # Otherwise you'd ban ALL future newlines.
-            #
+            # Don't add <NEWLINE> to word_usage.
             continue
 
 
         # -------------------------------------------------
-        # ADD WORD
+        # NORMAL WORD
         # -------------------------------------------------
 
         generated_words.append(
             next_word
         )
 
+
         ids.append(
             best_id
         )
 
-        used_mask[
-            best_id
-        ] = True
+
+        word_usage[best_id] = (
+            word_usage.get(
+                best_id,
+                0
+            )
+            + 1
+        )
 
 
     # -----------------------------------------------------
-    # RETURN POEM
+    # FORMAT POEM
     # -----------------------------------------------------
 
     lines = []
+
     current_line = []
+
 
     for word in generated_words:
 
@@ -788,13 +1006,16 @@ def generate_poem(text):
                     )
                 )
 
+
             current_line = []
+
 
         else:
 
             current_line.append(
                 word
             )
+
 
     if current_line:
 
@@ -803,6 +1024,11 @@ def generate_poem(text):
                 current_line
             )
         )
+
+
+    # -----------------------------------------------------
+    # RETURN POEM
+    # -----------------------------------------------------
 
     return "\n".join(
         lines
