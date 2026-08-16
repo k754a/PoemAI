@@ -132,7 +132,7 @@ int main() {
     float learningRate = 0.001f;
 
     //handle epochs, how many times we go through the data!
-    int epochs = 800;
+    int epochs = 400;
 
     //build a list of each training example, so instead of moving the inputs around, we just shuffle the order, and its faster
     std::vector<int> trainingOrder(Inputs.size());
