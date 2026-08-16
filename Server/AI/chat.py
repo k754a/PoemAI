@@ -1,6 +1,7 @@
 import os, torch, random #imports, import the os, torch, and random
 
-torch.set_num_threads(2), torch.set_num_interop_threads(1) #set the threads up to prevent using a lot, as NEST is small
+torch.set_num_threads(2)
+torch.set_num_interop_threads(1) #set the threads up to prevent using a lot, as NEST is small
 
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -84,7 +85,7 @@ weights = raw[:input_n].view(
 
 out_weights = raw[input_n:].view(
     word_count, neurons
-)
+).float()
 
 # print( #DEBUG
 #     f"Vocab: {word_count} | "
@@ -120,7 +121,7 @@ def generate_poem(prompt): #generate_poem
     used = {first: 1} #tracks how man times the word is used, adding the first word
     rhyme_target = None #we dont have a rhyme target yet.
 
-    hidden = torch.zeros( neurons, dtype=dtype ) #build the hidden layer, (the neurons)
+    hidden = torch.zeros( neurons, dtype=torch.float32 ) #build the hidden layer, (the neurons)
 
     for _ in range(MAX_TOKENS - 1): # loop through each token, and build the next word - 1 for our first word
         hidden.zero_() #reset the hidden layer to 0 
@@ -128,11 +129,11 @@ def generate_poem(prompt): #generate_poem
         #grab the last context words, and add them to the hidden layer
         for pos, wid in enumerate( ids[-context:] ): #get the recent words
             if 0 < wid < word_count: #if the word id is valid, add it
-                hidden += weights[pos, wid]
+                hidden += weights[pos, wid].float()
 
         hidden.clamp_(-1, 1) # clamp hidden between -1 and 1 to prevent any overflow
 
-        scores = torch.mv( out_weights.float(), hidden.float() ) #multiply the hidden layer by the output weight, to get a score for each word in the voacb
+        scores = torch.mv( out_weights, hidden) #multiply the hidden layer by the output weight, to get a score for each word in the voacb
 
         scores += bias #add the bias to the scores
         scores[0] = -float("inf") #ban word 0, (thats an unknown word) so we dont want that
