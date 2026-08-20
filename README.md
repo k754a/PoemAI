@@ -19,7 +19,7 @@ This project is mainly a way for me to learn how LLMs and transformers work unde
 <h2 style="border:none;">Demo:</h2>
 
 Try out a web version of it!
-https://k754a.hackclub.app/
+https://k754a.hackclub.app/PoemAi
 
 This demo uses Flask and allows JavaScript to make a call to the server. In return, the output of the model is streamed back to the client.
 
